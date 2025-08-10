@@ -23,7 +23,7 @@ const OUTPUT_SAMPLE_RATE = 24000;
 const MIC_BUFFER_SIZE = BrowserCompatibility.getOptimalBufferSize();
 const ENHANCED_AUDIO_WORKLET_URL = '/enhanced-audio-processor.js';
 const FALLBACK_AUDIO_WORKLET_URL = '/audio-processor.js';
-const MAX_AUDIO_QUEUE_SIZE = 50;
+const MAX_AUDIO_QUEUE_SIZE = 100;  // Increased from 50 to reduce audio dropouts for longer sentences
 const WEBSOCKET_SEND_BUFFER_LIMIT = 65536;
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_BASE = 100;
@@ -81,6 +81,7 @@ const App = () => {
   const lastSendTimeRef = useRef(0);
   const retryQueueRef = useRef([]);
   const audioQueueRef = useRef([]);
+  const audioSequenceRef = useRef(0);  // Track sequence numbers for audio synchronization
   const audioContextRecoveryAttempts = useRef(0);
   const audioWorkletSupported = useRef(null);
   const isPlayingRef = useRef(false);
@@ -530,7 +531,14 @@ const App = () => {
     if (audioProcessorRef.current) {
       audioProcessorRef.current.setSystemPlaying(true);
     }
-    const arrayBuffer = audioQueueRef.current.shift();
+    
+    const audioChunk = audioQueueRef.current.shift();
+    const arrayBuffer = audioChunk.data || audioChunk; // Handle both old and new formats
+    
+    // Log sequence info for debugging
+    if (audioChunk.sequence !== undefined) {
+      addLogEntry("audio_sequence", `Playing audio chunk sequence ${audioChunk.sequence}, queue length: ${audioQueueRef.current.length}`);
+    }
     const audioCtx = await getPlaybackAudioContext(
       "playNextGeminiChunk_SystemAction"
     );
@@ -642,8 +650,13 @@ const App = () => {
       }
       currentAudioSourceRef.current = null;
     }
+    const clearedCount = audioQueueRef.current.length;
     audioQueueRef.current = [];
     isPlayingRef.current = false;
+    
+    if (clearedCount > 0) {
+      addLogEntry("audio_sequence", `Cleared ${clearedCount} audio chunks from queue due to barge-in`);
+    }
     
     // Notify audio processor that system audio has stopped (barge-in)
     if (audioProcessorRef.current) {
@@ -753,15 +766,31 @@ const App = () => {
     if (checkWebSocketBackpressure()) {
       addLogEntry("warning", "WebSocket backpressure detected, adding to retry queue");
       
-      // Add to pending queue (with size limit)
+      // Add to pending queue with intelligent management
       if (pendingAudioChunks.current.length < MAX_AUDIO_QUEUE_SIZE) {
-        pendingAudioChunks.current.push(audioData);
+        pendingAudioChunks.current.push({
+          data: audioData,
+          timestamp: Date.now(),
+          sequence: audioChunkSentCountRef.current + 1
+        });
       } else {
-        // Drop oldest chunk if queue is full
-        pendingAudioChunks.current.shift();
-        pendingAudioChunks.current.push(audioData);
+        // Intelligent queue management: drop middle chunks to preserve recent and older important chunks
+        const queueLength = pendingAudioChunks.current.length;
+        const middleIndex = Math.floor(queueLength / 2);
+        
+        // Remove a chunk from the middle third of the queue
+        const dropIndex = middleIndex + Math.floor(Math.random() * Math.floor(queueLength / 3));
+        pendingAudioChunks.current.splice(dropIndex, 1);
+        
+        // Add new chunk
+        pendingAudioChunks.current.push({
+          data: audioData,
+          timestamp: Date.now(),
+          sequence: audioChunkSentCountRef.current + 1
+        });
+        
         audioMetricsRef.current.dropouts++;
-        addLogEntry("warning", "Audio buffer overflow - dropping oldest chunk");
+        addLogEntry("warning", `Audio buffer overflow - intelligently dropped chunk at position ${dropIndex}`);
       }
       return false;
     }
@@ -954,12 +983,17 @@ const App = () => {
 
 
 
-  // Process pending audio chunks
+  // Process pending audio chunks with sequencing support
   const processPendingAudioChunks = useCallback(async () => {
     while (pendingAudioChunks.current.length > 0 && !checkWebSocketBackpressure()) {
-      const chunk = pendingAudioChunks.current.shift();
-      const sent = await sendAudioChunkWithBackpressure(chunk);
-      if (!sent) break; // If we couldn't send, put it back and stop
+      const chunkObj = pendingAudioChunks.current.shift();
+      const audioData = chunkObj.data || chunkObj; // Handle both old and new formats
+      const sent = await sendAudioChunkWithBackpressure(audioData);
+      if (!sent) {
+        // Put it back at the front if couldn't send
+        pendingAudioChunks.current.unshift(chunkObj);
+        break;
+      }
     }
   }, [sendAudioChunkWithBackpressure, checkWebSocketBackpressure]);
 
@@ -1301,7 +1335,16 @@ const App = () => {
           }
         } else if (event.data instanceof ArrayBuffer) {
           addLogEntry("audio_receive", `📥 Received audio from backend: ${event.data.byteLength} bytes`);
-          audioQueueRef.current.push(event.data);
+          
+          // Add audio chunk with sequence number for better synchronization
+          const audioChunk = {
+            data: event.data,
+            sequence: audioSequenceRef.current++,
+            timestamp: Date.now(),
+            size: event.data.byteLength
+          };
+          
+          audioQueueRef.current.push(audioChunk);
           if (!isPlayingRef.current) playNextGeminiChunk();
         } else {
           addLogEntry(

@@ -566,7 +566,7 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
    * Main audio processing function
    */
   process(inputs, outputs, parameters) {
-    const startTime = performance.now();
+    const startTime = Date.now();
     
     try {
       this.performance.totalFrames++;
@@ -643,7 +643,7 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
       }
       
       // Performance tracking
-      const processingTime = performance.now() - startTime;
+      const processingTime = Date.now() - startTime;
       this.performance.processingTimes.push(processingTime);
       
       if (this.performance.processingTimes.length > 100) {
