@@ -551,11 +551,14 @@ export class NetworkQualityMonitor {
     const startTime = Date.now();
     
     try {
-      // Simple latency test using fetch
-      const response = await fetch('/favicon.ico?' + Date.now(), {
+      // Use backend ping endpoint for network quality measurement
+      // Match the BACKEND_HOST from App.js
+      const BACKEND_HOST = "localhost:8000";
+      
+      // Simple latency test using backend ping endpoint  
+      const response = await fetch(`http://${BACKEND_HOST}/ping`, {
         method: 'HEAD',
-        cache: 'no-cache',
-        mode: 'no-cors'
+        cache: 'no-cache'
       });
       
       const endTime = Date.now();
@@ -564,7 +567,7 @@ export class NetworkQualityMonitor {
       return {
         timestamp: startTime,
         latency,
-        success: true,
+        success: response.ok,
         connectionType: this.currentQuality.connectionType
       };
       
