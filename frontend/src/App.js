@@ -82,6 +82,7 @@ const App = () => {
   const retryQueueRef = useRef([]);
   const audioQueueRef = useRef([]);
   const audioContextRecoveryAttempts = useRef(0);
+  const audioWorkletSupported = useRef(null);
   const isPlayingRef = useRef(false);
   const currentAudioSourceRef = useRef(null);
   const logsAreaRef = useRef(null);
@@ -97,6 +98,22 @@ const App = () => {
   useEffect(() => {
     isMutedRef.current = isMuted;
   }, [isMuted]);
+
+  // Log entry function - defined early to avoid initialization errors
+  const addLogEntry = useCallback((type, content) => {
+    // Only show tool calls and errors in the console
+    const allowedTypes = ["toolcall", "error"];
+    if (!allowedTypes.includes(type)) {
+      return;
+    }
+    const newEntry = {
+      id: generateUniqueId(),
+      type,
+      content,
+      timestamp: new Date().toLocaleTimeString(),
+    };
+    setMessages((prev) => [...prev, newEntry]);
+  }, []);
 
   // Initialize enhanced audio system
   useEffect(() => {
@@ -249,20 +266,6 @@ const App = () => {
     return () => clearInterval(interval);
   }, [isRecording]);
 
-  const addLogEntry = useCallback((type, content) => {
-    // Only show tool calls and errors in the console
-    const allowedTypes = ["toolcall", "error"];
-    if (!allowedTypes.includes(type)) {
-      return;
-    }
-    const newEntry = {
-      id: generateUniqueId(),
-      type,
-      content,
-      timestamp: new Date().toLocaleTimeString(),
-    };
-    setMessages((prev) => [...prev, newEntry]);
-  }, []);
 
   const fetchToolCallLogs = useCallback(async () => {
     setIsLoading(true);
@@ -395,9 +398,10 @@ const App = () => {
     try {
       // Clean up existing context
       if (localAudioContextRef.current) {
-        if (audioWorkletNodeRef.current) {
-          audioWorkletNodeRef.current.disconnect();
-          audioWorkletNodeRef.current = null;
+        if (audioProcessorRef.current) {
+          audioProcessorRef.current.disconnect();
+          audioProcessorRef.current.destroy();
+          audioProcessorRef.current = null;
         }
         localAudioContextRef.current = null;
       }
@@ -555,12 +559,9 @@ const App = () => {
         );
         isPlayingRef.current = false;
         
-        // Notify AudioWorklet that system audio has stopped
-        if (audioWorkletNodeRef.current) {
-          audioWorkletNodeRef.current.port.postMessage({
-            type: 'SET_SYSTEM_PLAYING',
-            data: { playing: false }
-          });
+        // Notify audio processor that system audio has stopped
+        if (audioProcessorRef.current) {
+          audioProcessorRef.current.setSystemPlaying(false);
         }
         if (audioQueueRef.current.length > 0) playNextGeminiChunk();
         return;
@@ -576,12 +577,9 @@ const App = () => {
         );
         isPlayingRef.current = false;
         
-        // Notify AudioWorklet that system audio has stopped
-        if (audioWorkletNodeRef.current) {
-          audioWorkletNodeRef.current.port.postMessage({
-            type: 'SET_SYSTEM_PLAYING',
-            data: { playing: false }
-          });
+        // Notify audio processor that system audio has stopped
+        if (audioProcessorRef.current) {
+          audioProcessorRef.current.setSystemPlaying(false);
         }
         if (audioQueueRef.current.length > 0) playNextGeminiChunk();
         return;
@@ -602,12 +600,9 @@ const App = () => {
         addLogEntry("gemini_audio", "Audio chunk finished playing.");
         isPlayingRef.current = false;
         
-        // Notify AudioWorklet that system audio has stopped
-        if (audioWorkletNodeRef.current) {
-          audioWorkletNodeRef.current.port.postMessage({
-            type: 'SET_SYSTEM_PLAYING',
-            data: { playing: false }
-          });
+        // Notify audio processor that system audio has stopped
+        if (audioProcessorRef.current) {
+          audioProcessorRef.current.setSystemPlaying(false);
         }
         
         currentAudioSourceRef.current = null;
@@ -717,6 +712,7 @@ const App = () => {
       }
 
       socketRef.current.send(audioData);
+      addLogEntry("audio_send", `📤 Sent audio to backend: ${audioData.byteLength} bytes`);
       audioChunkSentCountRef.current++;
       lastSendTimeRef.current = Date.now();
       audioMetricsRef.current.retryCount += attempt; // Track total retry attempts
@@ -743,6 +739,7 @@ const App = () => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN && !checkWebSocketBackpressure()) {
       try {
         socketRef.current.send(audioData);
+        addLogEntry("audio_send", `📤 Sent audio to backend (immediate): ${audioData.byteLength} bytes`);
         audioChunkSentCountRef.current++;
         lastSendTimeRef.current = Date.now();
         return true;
@@ -779,6 +776,7 @@ const App = () => {
     
     switch (type) {
       case 'AUDIO_DATA':
+        addLogEntry("audio_capture", `🎤 Captured audio chunk: ${data.audioData.byteLength} bytes`);
         sendAudioChunkWithBackpressure(data.audioData);
         break;
         
@@ -933,7 +931,7 @@ const App = () => {
 
       // Test AudioWorklet creation
       const testContext = new AudioContext();
-      await testContext.audioWorklet.addModule(AUDIO_WORKLET_URL);
+      await testContext.audioWorklet.addModule(ENHANCED_AUDIO_WORKLET_URL);
       testContext.close();
       
       audioWorkletSupported.current = true;
@@ -1017,11 +1015,12 @@ const App = () => {
           return;
         }
         try {
-          addLogEntry("mic", "Requesting microphone access for new stream...");
+          addLogEntry("mic", "🎤 Requesting microphone access for new stream...");
+          addLogEntry("debug", `AudioContext state: ${localAudioContextRef.current?.state}, Sample rate: ${localAudioContextRef.current?.sampleRate}`);
           mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({
             audio: {sampleRate: INPUT_SAMPLE_RATE, channelCount: 1},
           });
-          addLogEntry("mic", "Microphone access GRANTED.");
+          addLogEntry("mic", "🎤 Microphone access GRANTED.");
 
           // Initialize AudioWorklet with fallback support
           const audioProcessorInitialized = await initializeAudioProcessorWithFallback();
@@ -1035,7 +1034,24 @@ const App = () => {
           const source = localAudioContextRef.current.createMediaStreamSource(
             mediaStreamRef.current
           );
-          audioProcessorRef.current.connect(source);
+          
+          // Handle different connection methods for different processor types
+          if (audioProcessorRef.current.connect) {
+            // For ScriptProcessorFallback: pass source to connect method
+            if (audioProcessorRef.current.constructor.name === 'ScriptProcessorFallback') {
+              audioProcessorRef.current.connect(source);
+            } else {
+              // For AudioWorkletWrapper: source connects to the processor node
+              if (audioProcessorRef.current.workletNode) {
+                source.connect(audioProcessorRef.current.workletNode);
+              } else {
+                source.connect(audioProcessorRef.current);
+              }
+            }
+          } else {
+            // Fallback: direct connection
+            source.connect(audioProcessorRef.current);
+          }
           
           // Send initial configuration to enhanced audio processor
           audioProcessorRef.current.updateConfig({
@@ -1284,6 +1300,7 @@ const App = () => {
             );
           }
         } else if (event.data instanceof ArrayBuffer) {
+          addLogEntry("audio_receive", `📥 Received audio from backend: ${event.data.byteLength} bytes`);
           audioQueueRef.current.push(event.data);
           if (!isPlayingRef.current) playNextGeminiChunk();
         } else {

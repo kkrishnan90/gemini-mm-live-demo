@@ -115,8 +115,8 @@ async def websocket_endpoint():
     connection_start_time = asyncio.get_event_loop().time()  # Track connection start
 
     # Force Hindi language for all transcription
-    language_code_to_use = "hi-IN"
-    print(f"🗣️ Forcing Hindi transcription: hi-IN")
+    language_code_to_use = "en-US"
+    print(f"🗣️ Forcing Hindi transcription: en-US")
 
     # Check if VAD should be disabled to prevent audio feedback
     disable_vad = os.getenv("DISABLE_VAD", "false").lower() == "true"
@@ -339,8 +339,8 @@ async def websocket_endpoint():
                             elif isinstance(client_data, bytes):
                                 audio_chunk = client_data
                                 if audio_chunk:
-                                    # print(f"Quart Backend: Received mic audio chunk: {len(audio_chunk)} bytes")
-                                    # print(f"Quart Backend: Sending audio chunk ({len(audio_chunk)} bytes) to Gemini via send_realtime_input...")
+                                    print(f"🎤 Backend: Received audio from frontend: {len(audio_chunk)} bytes")
+                                    print(f"📤 Backend: Sending audio to Gemini Live API: {len(audio_chunk)} bytes")
                                     await session.send_realtime_input(
                                         audio=types.Blob(
                                             mime_type=f"audio/pcm;rate={INPUT_SAMPLE_RATE}",
@@ -412,6 +412,7 @@ async def websocket_endpoint():
                                     # print(f"Quart Backend: Updated session handle from direct response.session_handle: {current_session_handle}")
 
                             if response.data is not None:
+                                print(f"📥 Backend: Received audio from Gemini Live API: {len(response.data)} bytes")
                                 try:
                                     current_time = asyncio.get_event_loop().time()
                                     time_since_connection = current_time - connection_start_time
@@ -434,7 +435,7 @@ async def websocket_endpoint():
                                         # Client is ready, send audio directly
                                         await websocket.send(response.data)
                                         print(
-                                            f"🔊 Sent audio chunk ({len(response.data)} bytes) to ready client")
+                                            f"🔊 Backend: Sent audio chunk ({len(response.data)} bytes) to frontend")
                                     else:
                                         # Client not ready, buffer the audio chunk
                                         initial_audio_buffer.append(
@@ -769,6 +770,12 @@ async def get_logs():
     # combined_logs.sort(key=lambda x: x.get("timestamp", ""), reverse=True) # Example sort
 
     return jsonify(combined_logs)
+
+
+@app.route("/ping", methods=["GET", "HEAD"])
+async def ping():
+    """Simple ping endpoint for connection quality testing."""
+    return jsonify({"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()})
 
 # To run this Quart application:
 # 1. Install dependencies: pip install quart quart-cors google-generativeai python-dotenv hypercorn

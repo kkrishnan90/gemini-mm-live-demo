@@ -332,8 +332,8 @@ class ConnectionQualityMonitor {
     const startTime = Date.now();
     
     try {
-      // Simple latency test using a small fetch request
-      const response = await fetch('/ping', {
+      // Simple latency test using a small fetch request to backend
+      const response = await fetch('http://localhost:8000/ping', {
         method: 'HEAD',
         cache: 'no-cache'
       });
