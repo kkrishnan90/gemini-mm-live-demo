@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Barebones Web Audio Test</title>
+    <style>
+      body {
+        font-family: sans-serif;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100vh;
+        margin: 0;
+      }
+      button {
+        font-size: 2em;
+        padding: 20px;
+        margin: 20px;
+      }
+      #status {
+        font-size: 1.5em;
+        margin-top: 20px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Barebones Web Audio Test</h1>
+    <button id="playButton">Play 440Hz Tone</button>
+    <div id="status">Status: Idle</div>
+
+    <script>
+      const wsButton = document.createElement("button");
+      wsButton.textContent = "Test WebSocket Connection";
+      
+
+      wsButton.onclick = () => {
+        statusDiv.textContent = "Status: Attempting WebSocket connection...";
+        const testSocket = new WebSocket("ws://localhost:8000/listen");
+        testSocket.onopen = () => {
+          console.log("[WS_TEST_HTML] WebSocket opened!");
+          statusDiv.textContent = "Status: WebSocket OPENED with Quart!";
+          testSocket.send("Hello from HTML test");
+        };
+        testSocket.onmessage = (event) => {
+          console.log("[WS_TEST_HTML] Message from server:", event.data);
+          statusDiv.textContent = `Status: Received from Quart: ${event.data}`;
+        };
+        testSocket.onerror = (error) => {
+          console.error("[WS_TEST_HTML] WebSocket error:", error);
+          statusDiv.textContent = "Status: WebSocket connection ERROR.";
+        };
+        testSocket.onclose = () => {
+          console.log("[WS_TEST_HTML] WebSocket closed.");
+          statusDiv.textContent = "Status: WebSocket CLOSED with Quart.";
+        };
+      };
+      const playButton = document.getElementById("playButton");
+      const statusDiv = document.getElementById("status");
+      document.body.insertBefore(wsButton, playButton.nextSibling);
+      let audioCtx = null;
+
+      playButton.addEventListener("click", async () => {
+        statusDiv.textContent = "Status: Button clicked. Initializing...";
+        console.log("--- Barebones Test: Button Clicked ---");
+
+        if (!audioCtx) {
+          try {
+            console.log("[CTX_BARE] Creating AudioContext...");
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)({
+              sampleRate: 24000,
+            });
+
+            audioCtx.onstatechange = () => {
+              console.log(
+                `[CTX_BARE_EVENT] State changed to: ${audioCtx.state}`
+              );
+              statusDiv.textContent = `Status: AudioContext state: ${audioCtx.state}`;
+            };
+            console.log(
+              `[CTX_BARE] Created. Initial state: ${audioCtx.state}, SampleRate: ${audioCtx.sampleRate}`
+            );
+          } catch (e) {
+            console.error("[CTX_BARE] Failed to create AudioContext:", e);
+            statusDiv.textContent = `Status: ERROR creating AudioContext: ${e.message}`;
+            return;
+          }
+        }
+
+        if (audioCtx.state === "suspended") {
+          console.log("[CTX_BARE] State is 'suspended'. Attempting resume...");
+          try {
+            await audioCtx.resume();
+            console.log(`[CTX_BARE] Resumed. Current state: ${audioCtx.state}`);
+          } catch (e) {
+            console.error("[CTX_BARE] Failed to resume AudioContext:", e);
+            statusDiv.textContent = `Status: ERROR resuming AudioContext: ${e.message}`;
+            return;
+          }
+        }
+
+        if (audioCtx.state !== "running") {
+          console.error(
+            `[CTX_BARE] Context not running! State: ${audioCtx.state}`
+          );
+          statusDiv.textContent = `Status: AudioContext not running: ${audioCtx.state}. Try click again.`;
+          return;
+        }
+
+        statusDiv.textContent = "Status: AudioContext running. Playing tone...";
+        console.log("[CTX_BARE] Playing tone...");
+
+        try {
+          const oscillator = audioCtx.createOscillator();
+          const gainNode = audioCtx.createGain();
+
+          oscillator.type = "sine";
+          oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); // A4 note
+
+          gainNode.gain.setValueAtTime(0.5, audioCtx.currentTime); // Audible volume
+
+          oscillator.connect(gainNode);
+          gainNode.connect(audioCtx.destination);
+
+          oscillator.start();
+          console.log("[CTX_BARE] Oscillator started.");
+          statusDiv.textContent = "Status: Tone playing... (0.5s)";
+
+          setTimeout(() => {
+            oscillator.stop();
+            oscillator.disconnect();
+            gainNode.disconnect();
+            console.log("[CTX_BARE] Oscillator stopped and disconnected.");
+            statusDiv.textContent = "Status: Tone finished.";
+          }, 500); // Play for 0.5 seconds
+        } catch (e) {
+          console.error("[CTX_BARE] Error playing oscillator:", e);
+          statusDiv.textContent = `Status: Error playing tone: ${e.message}`;
+        }
+      });
+    </script>
+  </body>
+</html>

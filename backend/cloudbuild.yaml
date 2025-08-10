@@ -1,0 +1,22 @@
+# Backend Cloud Build configuration
+steps:
+  # Step 1: Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'gcr.io/${_PROJECT_ID}/gemini-backend:${_COMMIT_SHA}', '.']
+
+  # Step 2: Push the container image to Container Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['push', 'gcr.io/${_PROJECT_ID}/gemini-backend:${_COMMIT_SHA}']
+
+# Substitute variables
+substitutions:
+  _PROJECT_ID: 'account-pocs'  # Default value, can be overridden
+  _COMMIT_SHA: 'latest'        # Default value, can be overridden
+  _SERVICE_NAME: 'gemini-backend-service'  # Default value, can be overridden
+
+# Images that will be stored in Container Registry
+images:
+  - 'gcr.io/${_PROJECT_ID}/gemini-backend:${_COMMIT_SHA}'
+
+# Timeout for the entire build process
+timeout: '1200s'

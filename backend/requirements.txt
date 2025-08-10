@@ -1,0 +1,5 @@
+quart
+quart-cors
+google-generativeai
+python-dotenv
+hypercorn

@@ -1,0 +1,121 @@
+# This is the main cloudbuild.yaml at the root of your repository
+# (e.g., gemini-live-python-backend/cloudbuild.yaml if you're running
+# `gcloud builds submit --config cloudbuild.yaml .` from that directory)
+
+steps:
+  # Step 1: Deploy Backend
+  # This step submits the backend's own cloudbuild.yaml to build and deploy the backend.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'deploy-backend'
+    args:
+      - 'builds'
+      - 'submit'
+      - './backend'  # Path to the directory containing backend code and its cloudbuild.yaml
+      - '--config=./backend/cloudbuild.yaml'
+      - '--substitutions=_PROJECT_ID=$PROJECT_ID,_COMMIT_SHA=$COMMIT_SHA,_SERVICE_NAME=backend-service'
+    # No waitFor needed for the first step
+
+  # Step 2: Get Backend URL
+  # This step waits for the backend deployment to (hopefully) complete and then fetches its URL.
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    id: 'get-backend-url'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        echo "Attempting to get backend URL for service: backend-service in region us-central1..."
+        # Try to get the URL. Redirect stderr to a file to help debug if it fails.
+        # Important: Adjust --region if your backend is not in us-central1
+        URL=$(gcloud run services describe backend-service --platform managed --region us-central1 --format 'value(status.url)' 2>/tmp/gcloud_error.log)
+
+        # Check if the URL was successfully retrieved
+        if [ -z "$URL" ]; then
+          echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+          echo "ERROR: Failed to retrieve backend URL for 'backend-service'."
+          echo "This could be due to:"
+          echo "  1. The backend service deployment failed in the previous step."
+          echo "  2. The service is taking too long to become ready."
+          echo "  3. The service name 'backend-service' is incorrect."
+          echo "  4. The region 'us-central1' is incorrect."
+          echo "  5. Permissions issues for the Cloud Build service account to describe the Cloud Run service."
+          echo "--- gcloud stderr output from 'describe' command: ---"
+          cat /tmp/gcloud_error.log
+          echo "---------------------------------------------------"
+          echo "Attempting to describe the service 'backend-service' again for full status (this might also fail if the service doesn't exist or isn't ready):"
+          gcloud run services describe backend-service --platform managed --region us-central1 || echo "Secondary describe command also failed."
+          echo "!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!"
+          exit 1 # Fail this build step
+        fi
+
+        echo "Successfully retrieved Backend URL: $URL"
+        # Write the URL to a file in the workspace, so subsequent steps can use it
+        echo "$URL" > /workspace/backend_url.txt
+        echo "Backend URL written to /workspace/backend_url.txt"
+    waitFor:
+      - 'deploy-backend' # Ensure backend deployment step is attempted first
+
+  # Optional Step 2.1: Verify content of backend_url.txt
+  # This step is for debugging; it prints the content of the file to the build logs.
+  - name: 'alpine' # Using a small image like alpine for basic commands
+    id: 'verify-backend-url-file'
+    entrypoint: 'sh'
+    args:
+      - '-c'
+      - |
+        echo "--- Verifying content of /workspace/backend_url.txt ---"
+        if [ -f /workspace/backend_url.txt ]; then
+          cat /workspace/backend_url.txt
+        else
+          echo "/workspace/backend_url.txt NOT FOUND!"
+        fi
+        echo "-------------------------------------------------------"
+    waitFor:
+      - 'get-backend-url'
+
+  # Step 3: Deploy Frontend
+  # This step reads the backend URL from the workspace file and uses it as a substitution
+  # for the frontend's build process.
+  - name: 'gcr.io/cloud-builders/gcloud'
+    id: 'deploy-frontend'
+    entrypoint: 'bash'
+    args:
+      - '-c'
+      - |
+        # Read the backend URL from the file created in the previous step
+        if [ ! -f /workspace/backend_url.txt ]; then
+          echo "ERROR: /workspace/backend_url.txt not found! Cannot proceed with frontend deployment."
+          exit 1
+        fi
+
+        BACKEND_URL=$(cat /workspace/backend_url.txt)
+
+        # Double-check if the BACKEND_URL is empty
+        if [ -z "$BACKEND_URL" ]; then
+          echo "ERROR: Backend URL read from /workspace/backend_url.txt is empty."
+          echo "This indicates an issue with the 'get-backend-url' step."
+          exit 1 # Fail this build step
+        fi
+
+        echo "Using Backend URL for Frontend Deployment: $BACKEND_URL"
+
+        # Submit the frontend build with the backend URL as a substitution
+        # Note: $PROJECT_ID and $COMMIT_SHA are built-in Cloud Build substitutions.
+        # We're using a separate gcloud call to avoid issues with passing the backend URL
+        gcloud builds submit ./gemini-voice-frontend \
+          --config=./gemini-voice-frontend/cloudbuild.yaml \
+          --substitutions=_PROJECT_ID=$PROJECT_ID,_COMMIT_SHA=$COMMIT_SHA,_BACKEND_URL=$BACKEND_URL
+
+    waitFor:
+      - 'verify-backend-url-file' # Wait for the verification step (or 'get-backend-url' if you remove verify)
+
+# Optional: You can specify timeout for the entire build
+timeout: 1200s # 20 minutes
+
+# Add dynamic_substitutions to handle bash-style substitutions
+options:
+  dynamic_substitutions: true
+
+# Optional: Substitutions you can pass to this main build if needed
+# (though $PROJECT_ID and $COMMIT_SHA are usually automatically available)
+# substitutions:
+#   _MY_CUSTOM_VAR: 'some_value'

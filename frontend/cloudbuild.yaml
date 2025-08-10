@@ -1,0 +1,42 @@
+substitutions:
+  _BACKEND_URL: 'https://gemini-backend-service-1018963165306.us-central1.run.app'
+  _PROJECT_ID: 'account-pocs'
+  _COMMIT_SHA: 'latest'
+steps:
+# Build the container image
+- name: 'gcr.io/cloud-builders/docker'
+  args:
+  - 'build'
+  - '-t'
+  - 'gcr.io/${_PROJECT_ID}/frontend-service:${_COMMIT_SHA}'
+  - '--build-arg'
+  - 'REACT_APP_BACKEND_URL=${_BACKEND_URL}'
+  - '.'
+
+# Push the container image to Container Registry
+- name: 'gcr.io/cloud-builders/docker'
+  args: ['push', 'gcr.io/${_PROJECT_ID}/frontend-service:${_COMMIT_SHA}']
+
+# Deploy container image to Cloud Run
+- name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+  entrypoint: 'gcloud'
+  args:
+  - 'run'
+  - 'deploy'
+  - 'frontend-service'
+  - '--image'
+  - 'gcr.io/${_PROJECT_ID}/frontend-service:${_COMMIT_SHA}'
+  - '--region'
+  - 'us-central1'
+  - '--platform'
+  - 'managed'
+  - '--allow-unauthenticated'
+  - '--port'
+  - '80'
+  - '--set-env-vars'
+  - 'BACKEND_URL=${_BACKEND_URL}'
+
+images:
+- 'gcr.io/${_PROJECT_ID}/frontend-service:${_COMMIT_SHA}'
+
+timeout: 1800s

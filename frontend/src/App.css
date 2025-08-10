@@ -1,0 +1,703 @@
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  background-color: #0d1117; /* Darker page background like screenshot */
+  color: #c9d1d9; /* Light text color for readability (GitHub dark default text) */
+}
+
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  background-color: #0d1117; /* Match body background */
+  color: #c9d1d9;
+}
+
+.console-panel {
+  width: 280px;
+  background-color: #161b22;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid #30363d;
+  gap: 20px;
+  height: 100vh;
+  box-sizing: border-box;
+}
+
+.console-header {
+  margin-bottom: 10px; /* Reduced margin */
+  padding-bottom: 10px;
+  /* border-bottom: 1px solid #30363d; */ /* Border removed, will be on controls if needed */
+  display: flex;
+  flex-direction: column; /* Stack title and controls */
+}
+
+.console-header h2 {
+  margin-top: 0;
+  margin-bottom: 10px; /* Space below Console title */
+  font-size: 1.4em; /* Slightly smaller */
+  color: #c9d1d9;
+}
+
+.console-header-controls {
+  display: flex;
+  align-items: center;
+  margin-top: 10px; /* Space below title */
+  /* border-bottom: 1px solid #30363d; */ /* Optional: if a separator is desired */
+  /* padding-bottom: 10px; */ /* Optional: if a separator is desired */
+}
+
+.console-dropdown {
+  padding: 6px 10px;
+  background-color: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 0.9em;
+  margin-right: 10px;
+  /* flex-grow: 1; */ /* Allow dropdown to take available space if needed, or fixed width */
+  min-width: 150px; /* Give it a decent default width */
+}
+
+.console-paused-button {
+  padding: 6px 12px;
+  background-color: #21262d; /* Similar to other buttons */
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 0.9em;
+  cursor: default; /* Static button */
+  white-space: nowrap; /* Prevent text wrapping */
+}
+
+/* Old .console-controls styles removed/commented out */
+/*
+.console-controls select { ... }
+.console-controls button { ... }
+.console-controls button:hover { ... }
+*/
+
+.logs-area {
+  flex-grow: 1;
+  background-color: #0d1117;
+  padding: 10px;
+  border-radius: 6px;
+  overflow-y: auto;
+  font-size: 0.9em;
+  line-height: 1.5;
+  border: 1px solid #30363d;
+  /* margin-bottom: 15px; */ /* Removed to allow full height */
+  /* min-height: 60vh; */ /* Removed to allow full height */
+  /* max-height: calc(100vh - 250px); */ /* Removed to allow full height */
+  height: 100%; /* Added to ensure it tries to take full available space */
+}
+
+.logs-area > p { /* This was for the old status text, might not be needed */
+  margin: 3px 0 8px 0;
+  padding: 4px 6px;
+  font-size: 0.85em;
+  color: #8b949e; /* Dimmer text for status (GitHub secondary text) */
+  word-break: break-all; 
+}
+
+.logs-area > p > b {
+  color: #c9d1d9; /* Brighter color for the bold part */
+}
+
+/* New styles for individual log entries from App.js messages */
+.log-entry {
+  background-color: transparent; /* #161b22; */ /* Background for each log entry box (GitHub dark UI bg) */
+  /* border: 1px solid #30363d; */ /* Border for each log entry */
+  border-bottom: 1px dashed #30363d; /* Separator for messages */
+  border-radius: 0px; /*6px;*/
+  padding: 6px 8px; /*8px 12px;*/
+  margin-bottom: 0px; /*8px;*/
+  word-wrap: break-word; /* Ensure long words break */
+  overflow-wrap: break-word; /* Ensure long words break */
+  font-size: 0.85em;
+  color: #8b949e; /* Default log text color */
+}
+
+.log-entry:last-child {
+  border-bottom: none;
+  margin-bottom: 0;
+}
+
+.log-prefix { /* If we add prefixes later based on message type */
+  font-weight: bold;
+  /* color: #58a6ff; */ /* Blueish color for prefix (GitHub primary action) */
+  margin-right: 5px;
+}
+
+/* Example log type styling - can be adapted */
+.log-entry-error {
+  color: #f85149 !important; /* Red for error (GitHub danger) */
+}
+.log-entry-error .log-prefix {
+  color: #f85149;
+}
+
+.log-entry-toolcall {
+  color: #58a6ff !important; /* Blue for tool calls */
+}
+
+.log-entry-vad_activation {
+  color: #d29922 !important; /* Yellow for VAD activation */
+}
+
+.log-entry-warn {
+  color: #d29922 !important; /* Yellow for warning (GitHub warning) */
+}
+
+.log-entry-info,
+.log-entry-status {
+  color: #d29922 !important; /* Yellow for other logs */
+}
+
+.main-panel {
+  flex-grow: 1; /* Takes up the remaining space */
+  display: flex;
+  flex-direction: column; /* To stack header and content */
+  background-color: #0d1117; /* Match app background */
+  color: #c9d1d9; /* Light text */
+}
+
+.main-panel-header {
+  padding: 20px 20px 0px 20px; /* Padding for the header area */
+}
+
+.main-panel-header h2 {
+  color: #c9d1d9;
+  margin-top: 0;
+  margin-bottom: 20px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid #30363d; /* Separator like console header */
+  font-size: 1.4em;
+}
+
+.results-content {
+  flex-grow: 1; /* Takes available space in main-panel */
+  /* background-color: #20232a; */ /* Slightly different dark for results area */
+  background-color: #0d1117; /* Match main panel background */
+  padding: 0px 20px 20px 20px; /* Padding for content area */
+  border-radius: 0px; /*8px;*/
+  overflow-y: auto; /* Allow scrolling for multiple cards */
+  display: flex; 
+  flex-direction: column; 
+  align-items: stretch; 
+  justify-content: flex-start;
+  color: #c9d1d9;
+  gap: 10px; /* Add space between chat bubbles */
+}
+ 
+.chat-area { /* Alias for results-content, for clarity if needed */
+  /* Styles are inherited from .results-content */
+  /* Ensures scrollability if content overflows */
+}
+ 
+.results-content-placeholder {
+  /* Styles for the placeholder: "Messages and data from the assistant will appear here." */
+  color: #8b949e; /* Dimmer secondary text color */
+  font-size: 1em;
+  text-align: center;
+  margin-top: 30px;
+  flex-grow: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Card styles from reference (can be used if card components are added later) */
+.card-generic-message,
+.card-balance,
+.card-transaction-history,
+.card-fund-transfer,
+.card-bill-payment {
+  background-color: #161b22; /* Slightly lighter than panel bg (GitHub dark UI bg) */
+  border: 1px solid #30363d; /* Border color (GitHub dark border) */
+  border-radius: 6px;
+  padding: 15px 20px;
+  margin-bottom: 20px;
+  color: #c9d1d9; /* Default text color for cards */
+  box-shadow: 0 1px 3px rgba(0,0,0,0.12), 0 1px 2px rgba(0,0,0,0.24); /* Subtle shadow */
+}
+
+.card-generic-message p,
+.card-balance p,
+.card-transaction-history p,
+.card-fund-transfer p,
+.card-bill-payment p {
+  margin-top: 0;
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
+
+.card-generic-message p:last-child,
+.card-balance p:last-child,
+.card-transaction-history p:last-child,
+.card-fund-transfer p:last-child,
+.card-bill-payment p:last-child {
+  margin-bottom: 0;
+}
+
+.card-balance h3,
+.card-transaction-history h3,
+.card-fund-transfer h3,
+.card-bill-payment h3 {
+  margin-top: 0;
+  margin-bottom: 15px;
+  color: #58a6ff; /* Blueish color for card titles */
+  font-size: 1.2em;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #30363d;
+}
+
+.card-transaction-history ul {
+  list-style-type: none;
+  padding-left: 0;
+}
+
+.card-transaction-history li {
+  padding: 8px 0;
+  border-bottom: 1px solid #21262d; /* Lighter border for list items */
+}
+
+.card-transaction-history li:last-child {
+  border-bottom: none;
+}
+
+/* Control Bar (Bottom) */
+.control-bar {
+  display: flex;
+  flex-direction: column; /* Stack the groups vertically */
+  align-items: center; /* Center groups horizontally */
+  padding: 15px 20px; /* Increased padding around the control bar */
+  background-color: #161b22;
+  border-top: 1px solid #30363d;
+  flex-shrink: 0;
+  gap: 35px; /* Increased space between the groups */
+}
+
+.main-controls-group,
+.status-indicators-group,
+.language-selector-container {
+  display: flex;
+  align-items: center;
+  justify-content: center; /* Center items within each group */
+  width: 100%; /* Allow groups to take full width if needed, or manage via content */
+  gap: 20px; /* Increased gap between items within a group */
+  padding-top: 10px; /* Increased padding */
+  padding-bottom: 10px; /* Increased padding */
+}
+
+.language-selector-container {
+  /* Specific styling for language selector if needed, e.g., alignment if label is above */
+  margin-bottom: 25px; /* Add space below language selector */
+}
+
+.language-selector-label {
+  font-size: 0.8em; /* Consistent small font */
+  color: #c9d1d9;
+  margin-right: 5px; /* Space between label and dropdown */
+  white-space: nowrap;
+}
+
+/* .control-tray styles are replaced by the group styles above */
+/* .control-tray.main-controls is replaced by .main-controls-group */
+
+.control-button { /* Base style for all buttons in control groups */
+  background-color: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 8px 10px;
+  height: auto;
+  min-width: 60px;
+  font-size: 1.2em; /* Icon size */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  /* margin: 0 5px; */ /* Replaced by gap in parent group */
+  transition: background-color 0.2s ease-in-out, border-color 0.2s ease-in-out;
+  margin-bottom: 20px; /* Add significant space below each control element */
+}
+
+/* Specific hover/active/muted states for .control-button */
+.control-button:hover:not(:disabled) {
+  background-color: #30363d;
+  border-color: #8b949e;
+}
+
+.control-button.mic-button.active {
+  background-color: #c93c37cc;
+  border-color: #f85149;
+}
+.control-button.mic-button.active:hover {
+  background-color: #f85149;
+}
+
+.control-button.mic-button.muted {
+  background-color: #484f58;
+  border-color: #6e7681;
+  color: #adbac7;
+}
+.control-button.mic-button.muted:hover {
+  background-color: #586069;
+}
+
+.control-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Remove or comment out .mic-button-container, .mic-button, .control-bar-buttons as they are simplified */
+/*
+.mic-button-container { ... }
+.mic-button { ... }
+.mic-button.recording { ... }
+.mic-button.muted { ... }
+.control-bar-buttons { ... }
+.control-bar-buttons .control-button { ... }
+*/
+
+/* Styles for text-input-area moved to console panel */
+.console-text-input-area {
+  display: none; /* Hidden as per request */
+  align-items: center;
+  padding: 0;
+  box-sizing: border-box;
+  width: 100%;
+  margin-top: auto;
+  min-height: 40px;
+}
+
+.console-text-input-area .text-input {
+  flex: 1;
+  height: 40px;
+  min-height: 40px;
+  padding: 0 12px;
+  background-color: #0d1117;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 0.95em;
+  margin-right: 8px;
+  box-sizing: border-box;
+}
+
+.console-text-input-area .send-button {
+  background-color: #238636;
+  color: white;
+  border: 1px solid #2ea043;
+  border-radius: 6px;
+  padding: 0;
+  width: 40px;
+  height: 40px;
+  min-height: 40px;
+  font-size: 1em;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  cursor: pointer;
+  transition: background-color 0.2s ease-in-out;
+  flex-shrink: 0;
+  box-sizing: border-box;
+  margin-right: 12px;
+}
+
+.console-text-input-area .send-button:hover:not(:disabled) {
+  background-color: #2ea043;
+}
+.console-text-input-area .send-button:disabled {
+  background-color: #21262d;
+  border-color: #30363d;
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* .text-input-container button svg styling removed as it's part of .send-button now */
+
+/* Audio Signal Placeholder in Control Bar */
+.audio-signal-placeholder {
+  width: 80px; /* Give it some defined space */
+  height: 20px; /* Adjust height as needed */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: 10px; /* Space from other controls */
+}
+
+.audio-wave {
+  display: flex;
+  align-items: flex-end; /* Align bars to bottom */
+  height: 100%;
+}
+
+.audio-wave span {
+  display: inline-block;
+  width: 4px;
+  height: 100%; /* Start at full height, animation will vary */
+  background-color: #58a6ff; /* Blue color for wave */
+  margin: 0 1px;
+  animation: wave-animation 1.2s infinite ease-in-out;
+  transform-origin: bottom; /* Animation scales from bottom */
+}
+
+/* Stagger animation for wave effect */
+.audio-wave span:nth-child(1) { animation-delay: 0s; }
+.audio-wave span:nth-child(2) { animation-delay: 0.2s; }
+.audio-wave span:nth-child(3) { animation-delay: 0.4s; }
+.audio-wave span:nth-child(4) { animation-delay: 0.6s; }
+.audio-wave span:nth-child(5) { animation-delay: 0.8s; }
+
+
+@keyframes wave-animation {
+  0%, 100% { transform: scaleY(0.2); }
+  50% { transform: scaleY(1.0); }
+}
+
+
+/* Ensure global styles don't conflict too much */
+code {
+  font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New',
+    monospace;
+}
+ 
+/* Chat Bubble Styles */
+.chat-bubble {
+  padding: 10px 15px;
+  border-radius: 15px;
+  max-width: 70%;
+  word-wrap: break-word;
+  display: flex; /* To help with potential future icons or timestamps inside */
+  flex-direction: column;
+}
+ 
+.user-bubble {
+  background-color: #005c4b; /* Darker WhatsApp-like green for user */
+  color: #e9edef; /* Light text for user bubble */
+  align-self: flex-end; /* Align user bubbles to the right */
+  border-bottom-right-radius: 5px; /* Slightly different corner for "tail" effect */
+}
+ 
+.ai-bubble {
+  background-color: #202c33; /* Dark grey for AI (WhatsApp dark mode other user) */
+  color: #e9edef; /* Light text for AI bubble */
+  align-self: flex-start; /* Align AI bubbles to the left */
+  border-bottom-left-radius: 5px; /* Slightly different corner for "tail" effect */
+}
+ 
+.chat-bubble-text {
+  font-size: 0.95em;
+  line-height: 1.4;
+}
+ 
+/* Optional: Add a little more space if two bubbles from the same source are consecutive */
+.user-bubble + .user-bubble,
+.ai-bubble + .ai-bubble {
+  margin-top: 2px;
+}
+
+.user-bubble + .ai-bubble,
+.ai-bubble + .user-bubble {
+  margin-top: 10px; /* Ensure distinct spacing between different speakers */
+}
+
+/* Styles for new elements in Control Bar */
+.language-selector-dropdown {
+  padding: 6px 10px;
+  background-color: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 0.9em;
+  /* margin: 0 5px; */ /* Replaced by gap in parent group */
+  height: 40px; /* Keep height consistent with other controls */
+  min-width: 120px;
+  margin-bottom: 30px !important;
+}
+.language-selector-dropdown:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.status-indicator { /* Base style for status indicators */
+  padding: 10px 15px;
+  background-color: #21262d;
+  color: #c9d1d9;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  font-size: 0.85em; /* Base size for the indicator block itself */
+  /* margin: 0 5px; */ /* Replaced by gap in parent group */
+  height: auto;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap; /* Prevent icon and text from wrapping on their own line initially */
+  margin-bottom: 30px !important;
+}
+
+.websocket-status {
+  min-width: 100px;
+}
+
+.connection-status { /* This class seems unused in App.js, but keeping for completeness if it was intended */
+  min-width: 110px;
+}
+
+/* Styles for Icon Buttons (Session, Mic) with Text Below */
+.icon-button-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2; /* Spacing between icon and text line */
+}
+
+.icon-button-text,
+.icon-status-text { /* Uniform font style and size for all small status texts */
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', 'Oxygen',
+    'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans', 'Helvetica Neue',
+    sans-serif; /* Ensure consistent font stack */
+  font-size: 0.7em; /* Uniform small size */
+  margin-top: 6px; /* Increased space between icon and its text */
+  color: #c9d1d9;
+  white-space: normal; /* Allow text to wrap if it's too long for the container */
+  text-align: center; /* Center wrapped text */
+  line-height: 1.1; /* Adjust line height for wrapped text if necessary */
+}
+
+/* Styles for Icon Status Indicators (WS, Session Status) with Text Below */
+.icon-status-indicator .icon-status-content { /* Container for icon + text within a status indicator */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  line-height: 1.2;
+}
+
+/* Ensure the main control buttons can accommodate the icon + text content */
+.control-button.icon-button {
+  margin-bottom: 30px !important; 
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  min-height: 60px;
+  padding: 12px 10px;
+}
+
+/* Ensure status indicators can accommodate icon + text content */
+.status-indicator.icon-status-indicator {
+  min-height: 50px; /* Ensure enough height for icon + text */
+  min-width: 70px;  /* Minimum width to prevent squishing */
+  padding: 8px 5px; /* Adjust padding for better spacing */
+}
+
+/* Ensure main-panel and results-content are structured to not shrink transcription area */
+.main-panel {
+  flex-grow: 1;
+  display: flex;
+  flex-direction: column;
+  /* height: 100%; */ /* This might be too restrictive if app-container isn't managing height perfectly */
+  overflow: hidden; /* Prevent internal scrollbars if possible, manage scrolling in results-content */
+}
+
+.results-content {
+  flex-grow: 1; /* This is crucial: it takes up available space, pushing control-bar down */
+  overflow-y: auto; /* Allows transcription to scroll independently */
+  padding: 0px 20px 20px 20px; /* Keep existing padding */
+}
+
+.app-container {
+  display: flex;
+  height: 100vh; /* Full viewport height */
+  width: 100vw;  /* Full viewport width */
+  overflow: hidden; /* Prevent the entire page from scrolling */
+}
+
+/* Additional spacing for specific button groups if they're contained in another element */
+.main-controls-group button,
+.status-indicators-group > div {
+  margin-bottom: 20px; /* Ensure space between buttons in groups */
+}
+
+/* If the controls are wrapped in a specific container, target that too */
+.console-controls-container > * {
+  margin-bottom: 25px; /* Even more space between major control sections */
+}
+
+/* Console Panel Controls */
+.console-panel > button,
+.console-panel > div > button,
+.console-panel > select,
+.console-panel > div > select,
+.console-panel > div {
+  margin-bottom: 30px !important; /* Force significant spacing between direct control elements */
+}
+
+/* Additional spacing for the bottom elements */
+.console-panel > div:last-child {
+  margin-top: 10px;
+}
+
+.console-text-input-area .text-input:focus {
+  outline: none;
+  border-color: #58a6ff;
+  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.2);
+}
+
+/* Enhanced audio status indicators */
+.audio-health-status {
+  min-width: 120px;
+}
+
+.network-quality-status {
+  min-width: 140px;
+}
+
+.buffer-status {
+  min-width: 100px;
+}
+
+/* Status warning colors */
+.status-warning {
+  background-color: #8b2635 !important;
+  color: #ffdcd7 !important;
+  border-color: #da3633 !important;
+}
+
+.status-caution {
+  background-color: #6f4e1a !important;
+  color: #fff8d7 !important;
+  border-color: #fd7d00 !important;
+}
+
+/* Audio health specific styling */
+.audio-health-status.status-warning {
+  animation: pulse-warning 2s infinite;
+}
+
+@keyframes pulse-warning {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Network quality color coding */
+.network-quality-status .icon-status-text {
+  font-weight: 500;
+}
+
+/* Buffer status with gradient indicators */
+.buffer-status .icon-status-text {
+  font-family: 'Courier New', monospace;
+  font-size: 0.8em;
+}
