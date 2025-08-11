@@ -76,7 +76,7 @@ const validateAudioSystemRecovery = (addLogEntry) => {
     return false;
   }
   
-  addLogEntry("audio", "🔍 Audio system recovery validation passed");
+  addLogEntry("audio", "Audio system recovery validation passed");
   return true;
 };
 
@@ -90,21 +90,21 @@ const sendAudioReadySignal = (playbackContext, socket, addLogEntry, connectionSi
     // CRITICAL FIX 1: Allow retry after connection errors/recovery
     if (reason.includes("recovery") || reason.includes("retry")) {
       connectionSignalTracker.current.delete(connectionId);
-      addLogEntry("audio", `🔄 Cleared signal tracking for connection ${connectionId} - allowing retry`);
+      addLogEntry("audio", `Cleared signal tracking for connection ${connectionId} - allowing retry`);
     } else {
-      addLogEntry("audio", `⏸️ Audio readiness signal already sent for connection ${connectionId}`);
+      addLogEntry("audio", `Audio readiness signal already sent for connection ${connectionId}`);
       return false;
     }
   }
   
   // Only send if both contexts are ready and socket is open
   if (!playbackContext || playbackContext.state !== "running") {
-    addLogEntry("audio", `⏸️ Audio readiness check failed: playback context state=${playbackContext?.state || 'null'}`);
+    addLogEntry("audio", `Audio readiness check failed: playback context state=${playbackContext?.state || 'null'}`);
     return false;
   }
   
   if (!socket || socket.readyState !== WebSocket.OPEN) {
-    addLogEntry("audio", `⏸️ Audio readiness check failed: socket state=${socket?.readyState || 'null'}`);
+    addLogEntry("audio", `Audio readiness check failed: socket state=${socket?.readyState || 'null'}`);
     return false;
   }
   
@@ -116,7 +116,7 @@ const sendAudioReadySignal = (playbackContext, socket, addLogEntry, connectionSi
       connectionSignalTracker.current.add(connectionId);
     }
     
-    addLogEntry("audio", `📤 Sent CLIENT_AUDIO_READY signal to backend for connection ${connectionId} (${reason}) - UNIFIED SIGNAL`);
+    addLogEntry("audio", `Sent CLIENT_AUDIO_READY signal to backend for connection ${connectionId} (${reason}) - UNIFIED SIGNAL`);
     return true;
   } catch (error) {
     addLogEntry("error", `Failed to send CLIENT_AUDIO_READY signal: ${error.message}`);
@@ -124,7 +124,7 @@ const sendAudioReadySignal = (playbackContext, socket, addLogEntry, connectionSi
     // CRITICAL FIX 1: Clear signal tracking on send error to allow recovery
     if (connectionId && connectionSignalTracker.current.has(connectionId)) {
       connectionSignalTracker.current.delete(connectionId);
-      addLogEntry("audio", `🔄 Cleared signal tracking for connection ${connectionId} due to send error - allowing recovery`);
+      addLogEntry("audio", `Cleared signal tracking for connection ${connectionId} due to send error - allowing recovery`);
     }
     return false;
   }
@@ -151,13 +151,13 @@ const isWebSocketReady = (socketRef, networkResilienceManagerRef, addLogEntry) =
   const readiness = networkResilienceManagerRef.isBulletproofReady();
   
   if (readiness.ready) {
-    addLogEntry && addLogEntry("debug", "✅ WebSocket bulletproof readiness: ALL CHECKS PASSED");
+    addLogEntry && addLogEntry("debug", "WebSocket bulletproof readiness: ALL CHECKS PASSED");
     return true;
   }
   
   // Log detailed failure reason for debugging
   addLogEntry && addLogEntry("debug", 
-    `❌ WebSocket readiness failed: ${readiness.reason} at layer ${readiness.layer}` +
+    `WebSocket readiness failed: ${readiness.reason} at layer ${readiness.layer}` +
     (readiness.recovery ? ` (recovery: ${readiness.recovery.reason})` : "")
   );
   
@@ -166,7 +166,7 @@ const isWebSocketReady = (socketRef, networkResilienceManagerRef, addLogEntry) =
     addLogEntry && addLogEntry("recovery", "Attempting ultimate circuit breaker recovery");
     const recovered = networkResilienceManagerRef.forceCircuitBreakerRecovery();
     if (recovered) {
-      addLogEntry && addLogEntry("recovery", "✅ Ultimate circuit breaker recovery successful");
+      addLogEntry && addLogEntry("recovery", "Ultimate circuit breaker recovery successful");
       return true;
     }
   }
@@ -186,7 +186,7 @@ const guaranteedAudioTransmission = async (audioData, socketRef, networkResilien
       const readiness = networkResilienceManagerRef.isBulletproofReady();
       if (readiness.ready) {
         await networkResilienceManagerRef.sendData(audioData);
-        addLogEntry("audio_send", "📤 SUCCESS: Audio sent via NetworkResilienceManager");
+        addLogEntry("audio_send", "SUCCESS: Audio sent via NetworkResilienceManager");
         return { success: true, method: 'NetworkResilienceManager', attempts };
       } else {
         attempts.push({ method: 'NetworkResilienceManager', failed: true, reason: readiness.reason });
@@ -201,7 +201,7 @@ const guaranteedAudioTransmission = async (audioData, socketRef, networkResilien
     try {
       const sent = await fallbackMethods.sendAudioChunkWithBackpressure(audioData);
       if (sent) {
-        addLogEntry("recovery", "📤 SUCCESS: Audio sent via direct WebSocket fallback");
+        addLogEntry("recovery", "SUCCESS: Audio sent via direct WebSocket fallback");
         return { success: true, method: 'DirectWebSocketWithBackpressure', attempts };
       }
       attempts.push({ method: 'DirectWebSocketWithBackpressure', failed: true, reason: 'backpressure_blocked' });
@@ -218,7 +218,7 @@ const guaranteedAudioTransmission = async (audioData, socketRef, networkResilien
       } else {
         socketRef.send(audioData);
       }
-      addLogEntry("recovery", "📤 SUCCESS: Audio sent via emergency raw WebSocket");
+      addLogEntry("recovery", "SUCCESS: Audio sent via emergency raw WebSocket");
       return { success: true, method: 'EmergencyRawWebSocket', attempts };
     } catch (error) {
       attempts.push({ method: 'EmergencyRawWebSocket', failed: true, error: error.message });
@@ -226,16 +226,65 @@ const guaranteedAudioTransmission = async (audioData, socketRef, networkResilien
   }
   
   // All methods failed
-  addLogEntry("error", "🚨 CRITICAL FAILURE: All transmission methods failed");
+  addLogEntry("error", "CRITICAL FAILURE: All transmission methods failed");
   addLogEntry("debug", `Transmission attempts: ${JSON.stringify(attempts)}`);
   
   return { success: false, method: 'none', attempts };
 };
 
+// Helper function to wrap raw PCM data in a WAV header
+const createWavFile = (pcmData) => {
+  const numChannels = 1;
+  const sampleRate = OUTPUT_SAMPLE_RATE; // 24000
+  const bitsPerSample = 16;
+  const pcmDataLength = pcmData.byteLength;
+  const headerLength = 44;
+  const wavFileLength = pcmDataLength + headerLength;
+  const buffer = new ArrayBuffer(wavFileLength);
+  const view = new DataView(buffer);
+
+  const writeString = (view, offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  // RIFF chunk descriptor
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, wavFileLength - 8, true); // ChunkSize
+  writeString(view, 8, 'WAVE');
+
+  // fmt sub-chunk
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+  view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
+  view.setUint16(22, numChannels, true); // NumChannels
+  view.setUint32(24, sampleRate, true); // SampleRate
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  view.setUint32(28, byteRate, true); // ByteRate
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  view.setUint16(32, blockAlign, true); // BlockAlign
+  view.setUint16(34, bitsPerSample, true); // BitsPerSample
+
+  // data sub-chunk
+  writeString(view, 36, 'data');
+  view.setUint32(40, pcmDataLength, true); // Subchunk2Size
+
+  // Copy PCM data
+  const pcmBytes = new Uint8Array(pcmData);
+  const wavBytes = new Uint8Array(buffer);
+  wavBytes.set(pcmBytes, headerLength);
+
+  return buffer;
+};
+
+const isSharedArrayBufferSupported = typeof window !== 'undefined' && typeof window.SharedArrayBuffer !== 'undefined';
+
 const App = () => {
   const [isRecording, setIsRecording] = useState(false); // Is microphone actively sending audio
   const [isSessionActive, setIsSessionActive] = useState(false); // Is the overall session (WS + mic) active
   const [isMuted, setIsMuted] = useState(false); // Is microphone muted
+  const [isWebSocketConnected, setIsWebSocketConnected] = useState(false);
   const [messages, setMessages] = useState([]);
   const [textInputValue, setTextInputValue] = useState("");
   const [transcriptionMessages, setTranscriptionMessages] = useState([]);
@@ -349,24 +398,26 @@ const App = () => {
             const recoveryResult = networkResilienceManagerRef.current.performIntelligentRecovery();
             
             if (recoveryResult.recovered) {
-              addLogEntry("recovery", 
-                `🔄 Periodic health check: Circuit breaker recovered (${recoveryResult.reason})`);
+              addLogEntry("recovery",
+                `Periodic health check: Circuit breaker recovered (${recoveryResult.reason})`
+              );
             } else if (recoveryResult.reason !== 'no_recovery_needed') {
-              addLogEntry("debug", 
-                `🔍 Periodic health check: No recovery needed (${recoveryResult.reason})`);
+              addLogEntry("debug",
+                `Periodic health check: No recovery needed (${recoveryResult.reason})`
+              );
             }
             
             // Additional bulletproof readiness validation
             const readiness = networkResilienceManagerRef.current.isBulletproofReady();
             if (!readiness.ready && socketRef.current?.readyState === WebSocket.OPEN) {
               addLogEntry("debug", 
-                `⚠️ Health check warning: Readiness issue detected - ${readiness.reason}`);
+                `Health check warning: Readiness issue detected - ${readiness.reason}`);
               
               // Attempt force recovery if it's a circuit breaker issue
               if (readiness.reason === 'circuit_breaker_open') {
                 const forceRecovered = networkResilienceManagerRef.current.forceCircuitBreakerRecovery();
                 if (forceRecovered) {
-                  addLogEntry("recovery", "🔄 Force recovery successful during health check");
+                  addLogEntry("recovery", "Force recovery successful during health check");
                 }
               }
             }
@@ -548,7 +599,7 @@ const App = () => {
             String(logEntry.status).toLowerCase().includes("error")) ||
           errorKeywords.some((keyword) => contentLowerCase.includes(keyword));
         console.log(
-          `%c[Tool Call ${isError ? "ERROR" : "Log"}] ${
+          `%c[Tool Call ${isError ? "ERROR" : "Log"}] ${ 
             logEntry.timestamp
           }: ${logContentString}`,
           isError ? "color: #FF3131; font-weight: bold;" : "color: #39FF14;"
@@ -687,7 +738,7 @@ const App = () => {
         }
         // CRITICAL: If playback context closes during audio playback, defer recovery
         if (contextName === 'PlaybackAudioContext' && isPlayingRef.current) {
-          addLogEntry("warning", "⚠️ Playback context closed during audio - deferring recovery until audio completes");
+          addLogEntry("warning", "Playback context closed during audio - deferring recovery until audio completes");
           // Don't reinitialize immediately - let current audio finish
         }
       } else if (state === 'running') {
@@ -702,160 +753,6 @@ const App = () => {
       context.removeEventListener('statechange', handleStateChange);
     };
   }, [addLogEntry, isRecording]);
-
-  const getPlaybackAudioContext = useCallback(
-    async (triggeredByAction) => {
-      if (
-        !playbackAudioContextRef.current ||
-        playbackAudioContextRef.current.state === "closed"
-      ) {
-        try {
-          addLogEntry("audio", "Attempting to create Playback AudioContext.");
-          playbackAudioContextRef.current = new (window.AudioContext ||
-            window.webkitAudioContext)({sampleRate: OUTPUT_SAMPLE_RATE});
-          gainNodeRef.current = playbackAudioContextRef.current.createGain();
-          gainNodeRef.current.connect(playbackAudioContextRef.current.destination);
-            
-          // Set up enhanced state monitoring for playback context
-          monitorAudioContextState(playbackAudioContextRef.current, 'PlaybackAudioContext');
-            
-          // Enhanced onstatechange handler - logs state changes and sends unified signal
-          playbackAudioContextRef.current.onstatechange = () => {
-            addLogEntry(
-              "audio",
-              `PlaybackCTX state changed to: ${playbackAudioContextRef.current?.state}`
-            );
-            // Send unified audio readiness signal when context becomes running
-            if (playbackAudioContextRef.current?.state === "running") {
-              sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, connectionSignalTracker, "context-state-change");
-            }
-          };
-          
-          addLogEntry(
-            "audio",
-            `Playback AudioContext CREATED. Initial state: ${playbackAudioContextRef.current.state}, SampleRate: ${playbackAudioContextRef.current.sampleRate}`
-          );
-          
-          // Send unified audio readiness signal if already running
-          if (playbackAudioContextRef.current.state === "running") {
-            sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, connectionSignalTracker, "context-creation-immediate");
-          }
-        } catch (e) {
-          console.error(
-            "[CTX_PLAYBACK_MGR] FAILED to CREATE Playback AudioContext",
-            e
-          );
-          addLogEntry("error", `FATAL PlaybackCTX ERROR: ${e.message}`);
-          playbackAudioContextRef.current = null;
-          return null;
-        }
-      }
-      if (playbackAudioContextRef.current.state === "suspended") {
-        if (
-          triggeredByAction &&
-          (triggeredByAction.toLowerCase().includes("user_action") ||
-            triggeredByAction.toLowerCase().includes("systemaction"))
-        ) {
-          addLogEntry(
-            "audio",
-            `PlaybackCTX State 'suspended'. Attempting RESUME by: ${triggeredByAction}.`
-          );
-          try {
-            await playbackAudioContextRef.current.resume();
-            addLogEntry(
-              "audio",
-              `PlaybackCTX Resume attempt finished. State: ${playbackAudioContextRef.current.state}`
-            );
-            
-            // Send unified audio readiness signal after successful resume
-            if (playbackAudioContextRef.current.state === "running") {
-              sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, connectionSignalTracker, "context-resume");
-            }
-          } catch (e) {
-            console.error(`[CTX_PLAYBACK_MGR] FAILED to RESUME PlaybackCTX`, e);
-            addLogEntry("error", `FAILED to RESUME PlaybackCTX: ${e.message}`);
-          }
-        }
-      }
-      if (playbackAudioContextRef.current?.state !== "running")
-        addLogEntry(
-          "warning",
-          `PlaybackCTX not 'running'. State: ${playbackAudioContextRef.current?.state}`
-        );
-      return playbackAudioContextRef.current;
-    },
-    [addLogEntry, monitorAudioContextState]
-  );
-
-  const playAudioChunk = useCallback(async (arrayBuffer) => {
-    const audioCtx = await getPlaybackAudioContext("playNextGeminiChunk_SystemAction");
-    if (!audioCtx || audioCtx.state !== "running") {
-      addLogEntry("error", `Playback FAIL: Audio system not ready (${audioCtx?.state})`);
-      jitterBufferRef.current.unshift(arrayBuffer);
-      return;
-    }
-
-    try {
-      const pcm16Data = new Int16Array(arrayBuffer);
-      const float32Data = new Float32Array(pcm16Data.length);
-      for (let i = 0; i < pcm16Data.length; i++) {
-        float32Data[i] = pcm16Data[i] / 32768.0;
-      }
-
-      const audioBuffer = audioCtx.createBuffer(1, float32Data.length, OUTPUT_SAMPLE_RATE);
-      audioBuffer.copyToChannel(float32Data, 0);
-
-      const source = audioCtx.createBufferSource();
-      source.buffer = audioBuffer;
-
-      const crossfadeDuration = 0.01; // 10ms crossfade
-
-      if (currentAudioSourceRef.current) {
-        // Fade out the previous source
-        currentAudioSourceRef.current.gain.linearRampToValueAtTime(0, audioCtx.currentTime);
-      }
-
-      const gainNode = audioCtx.createGain();
-      source.connect(gainNode);
-      gainNode.connect(gainNodeRef.current);
-
-
-      // Fade in the new source
-      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
-      gainNode.gain.linearRampToValueAtTime(0.8, audioCtx.currentTime + crossfadeDuration);
-
-      source.onended = () => {
-        if (jitterBufferRef.current.length > 0) {
-          const nextChunk = jitterBufferRef.current.shift();
-          playAudioChunk(nextChunk);
-        } else {
-          isPlayingRef.current = false;
-        }
-        source.disconnect();
-        gainNode.disconnect();
-      };
-
-      source.start(audioCtx.currentTime);
-      isPlayingRef.current = true;
-      currentAudioSourceRef.current = { source, gain: gainNode.gain };
-
-    } catch (error) {
-      addLogEntry("error", `Playback Error: ${error.message}`);
-      isPlayingRef.current = false;
-    }
-  }, [getPlaybackAudioContext, addLogEntry]);
-
-  useEffect(() => {
-    const playbackLoop = () => {
-      if (jitterBufferRef.current.length >= adaptiveJitterBufferSize.current && !isPlayingRef.current) {
-        const audioChunk = jitterBufferRef.current.shift();
-        playAudioChunk(audioChunk);
-      }
-      requestAnimationFrame(playbackLoop);
-    };
-    const animationFrameId = requestAnimationFrame(playbackLoop);
-    return () => cancelAnimationFrame(animationFrameId);
-  }, [playAudioChunk]);
 
   const stopSystemAudioPlayback = useCallback(() => {
     if (currentAudioSourceRef.current) {
@@ -943,7 +840,7 @@ const App = () => {
       }
 
       socketRef.current.send(audioData);
-      addLogEntry("audio_send", `📤 Sent audio to backend: ${audioData.byteLength} bytes`);
+      addLogEntry("audio_send", `Sent audio to backend: ${audioData.byteLength} bytes`);
       audioChunkSentCountRef.current++;
       lastSendTimeRef.current = Date.now();
       audioMetricsRef.current.retryCount += attempt; // Track total retry attempts
@@ -970,7 +867,7 @@ const App = () => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN && !checkWebSocketBackpressure()) {
       try {
         socketRef.current.send(audioData);
-        addLogEntry("audio_send", `📤 Sent audio to backend (immediate): ${audioData.byteLength} bytes`);
+        addLogEntry("audio_send", `Sent audio to backend (immediate): ${audioData.byteLength} bytes`);
         audioChunkSentCountRef.current++;
         lastSendTimeRef.current = Date.now();
         return true;
@@ -1023,7 +920,7 @@ const App = () => {
     
     switch (type) {
       case 'AUDIO_DATA':
-        addLogEntry("audio_capture", `🎤 Captured audio chunk: ${data.audioData.byteLength} bytes`);
+        addLogEntry("audio_capture", `Captured audio chunk: ${data.audioData.byteLength} bytes`);
         sendAudioChunkWithBackpressure(data.audioData);
         break;
         
@@ -1122,10 +1019,10 @@ const App = () => {
         if (result.success) {
           audioChunkSentCountRef.current++;
           lastSendTimeRef.current = Date.now();
-          addLogEntry("audio_send", `📤 Audio transmission successful via ${result.method}`);
+          addLogEntry("audio_send", `SUCCESS: Audio transmission successful via ${result.method}`);
         } else {
           audioMetricsRef.current.failedTransmissions++;
-          addLogEntry("error", "🚨 BULLETPROOF TRANSMISSION FAILED - All methods exhausted");
+          addLogEntry("error", "CRITICAL FAILURE: All transmission methods exhausted");
           addLogEntry("debug", `Failed attempts: ${result.attempts.length}`);
         }
       } catch (error) {
@@ -1268,10 +1165,6 @@ const App = () => {
           : "Start Microphone Input requested as part of session."
       );
 
-      if (!isResuming) {
-        await getPlaybackAudioContext("handleStartListening_UserAction");
-      }
-
       if (
         !mediaStreamRef.current ||
         !localAudioContextRef.current ||
@@ -1284,12 +1177,10 @@ const App = () => {
           return;
         }
         try {
-          addLogEntry("mic", "🎤 Requesting microphone access for new stream...");
+          addLogEntry("mic", "Requesting microphone access for new stream...");
           addLogEntry("debug", `AudioContext state: ${localAudioContextRef.current?.state}, Sample rate: ${localAudioContextRef.current?.sampleRate}`);
-          mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({
-            audio: {sampleRate: INPUT_SAMPLE_RATE, channelCount: 1},
-          });
-          addLogEntry("mic", "🎤 Microphone access GRANTED.");
+          mediaStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: {sampleRate: INPUT_SAMPLE_RATE, channelCount: 1}});
+          addLogEntry("mic", "Microphone access GRANTED.");
 
           // Initialize AudioWorklet with fallback support
           const audioProcessorInitialized = await initializeAudioProcessorWithFallback();
@@ -1379,7 +1270,7 @@ const App = () => {
       setIsRecording(true);
       addLogEntry("mic_status", "Microphone is NOW actively sending data.");
     },
-    [addLogEntry, initializeAudioProcessorWithFallback, getPlaybackAudioContext]
+    [addLogEntry, initializeAudioProcessorWithFallback]
   );
 
   const handlePauseListening = useCallback(() => {
@@ -1453,6 +1344,52 @@ const App = () => {
     addLogEntry("mic_status", "Microphone resources cleaned up.");
   }, [addLogEntry]);
 
+  const playAudioFromQueue = useCallback(async () => {
+    if (isPlayingRef.current || jitterBufferRef.current.length < adaptiveJitterBufferSize.current) {
+      return;
+    }
+    isPlayingRef.current = true;
+
+    const audioChunk = jitterBufferRef.current.shift();
+    if (!audioChunk) {
+      isPlayingRef.current = false;
+      return;
+    }
+
+    try {
+      if (playbackAudioContextRef.current.state === 'suspended') {
+        await playbackAudioContextRef.current.resume();
+      }
+
+      // FIX: The browser cannot decode raw PCM data. We need to wrap it in a WAV header.
+      const wavData = createWavFile(audioChunk);
+
+      const audioBuffer = await playbackAudioContextRef.current.decodeAudioData(wavData);
+      const source = playbackAudioContextRef.current.createBufferSource();
+      source.buffer = audioBuffer;
+      source.connect(playbackAudioContextRef.current.destination);
+
+      const currentTime = playbackAudioContextRef.current.currentTime;
+      const startTime = nextStartTimeRef.current > currentTime ? nextStartTimeRef.current : currentTime;
+      
+      source.start(startTime);
+      
+      nextStartTimeRef.current = startTime + audioBuffer.duration;
+      
+      source.onended = () => {
+        isPlayingRef.current = false;
+        playAudioFromQueue();
+      };
+      currentAudioSourceRef.current = { source };
+
+    } catch (error) {
+      addLogEntry('error', `Audio playback error: ${error.message}`);
+      isPlayingRef.current = false;
+      // Try to play the next chunk
+      setTimeout(playAudioFromQueue, 100);
+    }
+  }, [addLogEntry]);
+
   const connectWebSocket = useCallback(
     (language) => {
       if (
@@ -1488,6 +1425,12 @@ const App = () => {
       socketRef.current = new WebSocket(
         `ws://${BACKEND_HOST}/listen?lang=${language}`
       );
+      
+      if (!playbackAudioContextRef.current) {
+        playbackAudioContextRef.current = new (window.AudioContext || window.webkitAudioContext)({
+          sampleRate: OUTPUT_SAMPLE_RATE,
+        });
+      }
       socketRef.current.binaryType = "arraybuffer";
 
       // CRITICAL FIX 1: Assign WebSocket to network resilience manager IMMEDIATELY
@@ -1499,6 +1442,7 @@ const App = () => {
 
       socketRef.current.onopen = () => {
         setWebSocketStatus("Open");
+        setIsWebSocketConnected(true);
         addLogEntry("ws", `WebSocket Connected (Lang: ${language}).`);
         
         // CRITICAL FIX 2: Reset circuit breaker on successful connection
@@ -1514,7 +1458,7 @@ const App = () => {
         // CRITICAL FIX 1: Clear any stale signal tracking for connection recovery
         if (connectionId && connectionSignalTracker.current.has(connectionId)) {
           connectionSignalTracker.current.delete(connectionId);
-          addLogEntry("audio", `🔄 Cleared stale signal tracking for recovered connection ${connectionId}`);
+          addLogEntry("audio", `Cleared signal tracking for recovered connection ${connectionId}`);
         }
         
         // Check if audio chain is ready and send unified signal
@@ -1538,195 +1482,104 @@ const App = () => {
       };
 
       socketRef.current.onmessage = (event) => {
-        if (typeof event.data === "string") {
-          try {
-            const receivedData = JSON.parse(event.data);
-            if (receivedData.type && receivedData.type.endsWith("_update")) {
-              addLogEntry(
-                receivedData.type,
-                `${receivedData.sender}: ${receivedData.text} (Final: ${receivedData.is_final})`
-              );
-              setTranscriptionMessages((prevMessages) => {
-                const existingMessageIndex = prevMessages.findIndex(
-                  (msg) => msg.id === receivedData.id
-                );
-                if (existingMessageIndex !== -1) {
-                  return prevMessages.map((msg) =>
-                    msg.id === receivedData.id
-                      ? {
-                          ...msg,
-                          text: receivedData.text,
-                          is_final: receivedData.is_final,
-                        }
-                      : msg
+              if (typeof event.data === 'string') {
+                try {
+                  const receivedData = JSON.parse(event.data);
+                  if (receivedData.type && receivedData.type.endsWith('_update')) {
+                    addLogEntry(
+                      receivedData.type,
+                      `${receivedData.sender}: ${receivedData.text} (Final: ${receivedData.is_final})`
+                    );
+                    setTranscriptionMessages((prevMessages) => {
+                      const existingMessageIndex = prevMessages.findIndex(
+                        (msg) => msg.id === receivedData.id
+                      );
+                      if (existingMessageIndex !== -1) {
+                        return prevMessages.map((msg) =>
+                          msg.id === receivedData.id
+                            ? {
+                                ...msg,
+                                text: receivedData.text,
+                                is_final: receivedData.is_final,
+                              }
+                            : msg
+                        );
+                      } else {
+                        return [
+                          ...prevMessages,
+                          {
+                            id: receivedData.id,
+                            text: receivedData.text,
+                            sender: receivedData.sender,
+                            is_final: receivedData.is_final,
+                          },
+                        ];
+                      }
+                    });
+                  } else if (receivedData.type === 'error') {
+                    addLogEntry(
+                      'error',
+                      `Server Error via WS: ${receivedData.message}`
+                    );
+                  } else if (receivedData.type === "audio_metadata") {
+                    // Handle audio metadata separately from binary audio
+                    const metadata = receivedData;
+                    const sequence = metadata.sequence;
+                    
+                    addLogEntry("audio_receive", `Audio metadata: ${metadata.size_bytes} bytes, ${metadata.expected_duration_ms}ms duration, seq=${sequence}`);
+                    
+                    // Store metadata for correlation with binary audio
+                    pendingMetadataRef.current.set(sequence, metadata);
+                    
+                    // Clean up old metadata entries (keep last 100)
+                    if (pendingMetadataRef.current.size > 100) {
+                      const entries = Array.from(pendingMetadataRef.current.entries());
+                      entries.sort((a, b) => a[0] - b[0]); // Sort by sequence
+                      const toDelete = entries.slice(0, entries.length - 100);
+                      toDelete.forEach(([seq]) => pendingMetadataRef.current.delete(seq));
+                    }
+                  } else if (receivedData.type === "buffer_pressure") {
+                    // Handle backend buffer pressure warnings
+                    const level = receivedData.level;
+                    const bufferSize = receivedData.buffer_size;
+                    const maxSize = receivedData.max_size;
+                    const action = receivedData.recommended_action;
+                    
+                    addLogEntry("audio_flow_control", 
+                      `Buffer pressure ${level}: ${bufferSize}/${maxSize} chunks, action: ${action}`);
+                    
+                    // UNIFIED: Log buffer pressure but don't adjust scheduling to avoid conflicts
+                    if (level === 'high') {
+                      addLogEntry("audio_flow_control", `Buffer pressure detected - backend will handle optimization`);
+                    }
+                  } else if (receivedData.type === "audio_truncation") {
+                    // Handle audio truncation warnings
+                    const chunksRemoved = receivedData.chunks_removed;
+                    const reason = receivedData.reason;
+                    
+                    addLogEntry("error", 
+                      `Audio truncated: ${chunksRemoved} chunks removed due to ${reason}`);
+                  } else {
+                    addLogEntry(
+                      "ws_json_unhandled",
+                      `Unhandled JSON: ${event.data.substring(0, 150)}...`
+                    );
+                  }
+                } catch (e) {
+                  addLogEntry(
+                    'error',
+                    `Failed to parse JSON from WS: ${ 
+                      e.message
+                    }. Raw: ${event.data.substring(0, 150)}...`
                   );
-                } else {
-                  return [
-                    ...prevMessages,
-                    {
-                      id: receivedData.id,
-                      text: receivedData.text,
-                      sender: receivedData.sender,
-                      is_final: receivedData.is_final,
-                    },
-                  ];
                 }
-              });
-            } else if (receivedData.type === "error") {
-              addLogEntry(
-                "error",
-                `Server Error via WS: ${receivedData.message}`
-              );
-            } else if (receivedData.type === "audio_metadata") {
-              // Handle audio metadata separately from binary audio
-              const metadata = receivedData;
-              const sequence = metadata.sequence;
-              
-              addLogEntry("audio_receive", `📥 Audio metadata: ${metadata.size_bytes} bytes, ${metadata.expected_duration_ms}ms duration, seq=${sequence}`);
-              
-              // Store metadata for correlation with binary audio
-              pendingMetadataRef.current.set(sequence, metadata);
-              
-              // Clean up old metadata entries (keep last 100)
-              if (pendingMetadataRef.current.size > 100) {
-                const entries = Array.from(pendingMetadataRef.current.entries());
-                entries.sort((a, b) => a[0] - b[0]); // Sort by sequence
-                const toDelete = entries.slice(0, entries.length - 100);
-                toDelete.forEach(([seq]) => pendingMetadataRef.current.delete(seq));
+              } else if (event.data instanceof ArrayBuffer) {
+                jitterBufferRef.current.push(event.data);
+                playAudioFromQueue();
               }
-            } else if (receivedData.type === "buffer_pressure") {
-              // Handle backend buffer pressure warnings
-              const level = receivedData.level;
-              const bufferSize = receivedData.buffer_size;
-              const maxSize = receivedData.max_size;
-              const action = receivedData.recommended_action;
-              
-              addLogEntry("audio_flow_control", 
-                `🔥 Buffer pressure ${level}: ${bufferSize}/${maxSize} chunks, action: ${action}`);
-              
-              // UNIFIED: Log buffer pressure but don't adjust scheduling to avoid conflicts
-              if (level === "high") {
-                addLogEntry("audio_flow_control", `⚠️ Buffer pressure detected - backend will handle optimization`);
-              }
-            } else if (receivedData.type === "audio_truncation") {
-              // Handle audio truncation warnings
-              const chunksRemoved = receivedData.chunks_removed;
-              const reason = receivedData.reason;
-              
-              addLogEntry("error", 
-                `🚨 Audio truncated: ${chunksRemoved} chunks removed due to ${reason}`);
-            } else {
-              addLogEntry(
-                "ws_json_unhandled",
-                `Unhandled JSON: ${event.data.substring(0, 150)}...`
-              );
-            }
-          } catch (e) {
-            addLogEntry(
-              "error",
-              `Failed to parse JSON from WS: ${
-                e.message
-              }. Raw: ${event.data.substring(0, 150)}...`
-            );
-          }
-        } else if (event.data instanceof ArrayBuffer) {
-          addLogEntry("audio_receive", `📥 Received binary audio from backend: ${event.data.byteLength} bytes`);
-          
-          // Push to jitter buffer
-          jitterBufferRef.current.push(event.data);
-        } else {
-          addLogEntry(
-            "ws_unknown_type",
-            `Received unknown data type from WS: ${typeof event.data}`
-          );
-        }
-      };
-
-      socketRef.current.onerror = (error) => {
-        console.error("WebSocket Error:", error);
-        setWebSocketStatus("Error");
-        addLogEntry("error", `WebSocket error occurred. Details in console.`);
-        
-        // ENHANCED ERROR HANDLING: Comprehensive circuit breaker and recovery management
-        if (networkResilienceManagerRef.current) {
-          const readiness = networkResilienceManagerRef.current.isBulletproofReady();
-          addLogEntry("debug", 
-            `WebSocket error - System readiness: ${readiness.ready ? 'READY' : readiness.reason}`);
-          
-          // Log circuit breaker state for debugging
-          const circuitState = networkResilienceManagerRef.current.audioCircuitBreaker?.state;
-          if (circuitState) {
-            addLogEntry("debug", `Circuit breaker state after WebSocket error: ${circuitState}`);
-          }
-        }
-        
-        if (isSessionActiveRef.current) {
-          addLogEntry("session_flow", "Session active during WebSocket error. Terminating session.");
-          setIsSessionActive(false);
-          handleStopListeningAndCleanupMic();
-        }
-      };
-
-      socketRef.current.onclose = (event) => {
-        setWebSocketStatus("Closed");
-        addLogEntry(
-          "ws",
-          `WebSocket Disconnected. Code: ${event.code}, Reason: "${
-            event.reason || "No reason given"
-          }"`
-        );
-        const intentionalCloseReasons = [
-          "User stopped session",
-          "Language changed during active session - stopping session",
-          "Component unmounting",
-          "New connection with different language initiated by connectWebSocket",
-          "Mic setup failed during session start",
-          "getUserMedia not supported",
-        ];
-        if (
-          !intentionalCloseReasons.includes(event.reason) &&
-          event.code !== 1000 &&
-          event.code !== 1005
-        ) {
-          addLogEntry(
-            "error",
-            `WebSocket closed unexpectedly (Code: ${event.code}, Reason: "${event.reason}"). Session terminated if active.`
-          );
-          if (isSessionActiveRef.current) {
-            setIsSessionActive(false);
-            handleStopListeningAndCleanupMic();
-          }
-        } else {
-          addLogEntry(
-            "ws_info",
-            `WebSocket closed intentionally or expectedly (Reason: "${event.reason}", Code: ${event.code}).`
-          );
-        }
-        if (
-          isSessionActiveRef.current &&
-          !intentionalCloseReasons.includes(event.reason) &&
-          event.code !== 1000
-        ) {
-          addLogEntry(
-            "session_flow_warn",
-            "Unexpected WS close during active session. Ensuring session is marked inactive."
-          );
-          setIsSessionActive(false);
-        }
-        
-        // Clean up connection tracking for this closed connection
-        if (event.target && event.target._connectionId) {
-          connectionSignalTracker.current.delete(event.target._connectionId);
-          addLogEntry("audio", `Cleaned up connection tracking for ${event.target._connectionId}`);
-        }
-      };
+            };
     },
-    [
-      addLogEntry,
-      playAudioChunk,
-      handleStartListening,
-      handleStopListeningAndCleanupMic,
-    ]
+    [addLogEntry, handleStartListening, playAudioFromQueue]
   );
 
   const handleToggleSession = useCallback(async () => {
@@ -1749,7 +1602,6 @@ const App = () => {
       addLogEntry("session_status", "Session INACTIVE.");
     } else {
       addLogEntry("session_control", "User requested to START session.");
-      await getPlaybackAudioContext("handleToggleSession_UserAction_Start");
 
       const currentLangName =
         LANGUAGES.find((l) => l.code === selectedLanguage)?.name ||
@@ -1772,7 +1624,6 @@ const App = () => {
     connectWebSocket,
     handleStopListeningAndCleanupMic,
     addLogEntry,
-    getPlaybackAudioContext,
   ]);
 
   const handleMicMuteToggle = useCallback(() => {
@@ -1918,7 +1769,7 @@ const App = () => {
           {messages.map((msg) => (
             <div
               key={msg.id}
-              className={`log-entry log-entry-${msg.type} ${
+              className={`log-entry log-entry-${msg.type} ${ 
                 msg.type === "toolcall" ? "log-entry-toolcall" : ""
               }`}>
               <span className="log-timestamp">[{msg.timestamp}] </span>
@@ -1963,7 +1814,7 @@ const App = () => {
           {transcriptionMessages.map((msg) => (
             <div
               key={msg.id}
-              className={`chat-bubble ${
+              className={`chat-bubble ${ 
                 msg.sender === "user" ? "user-bubble" : "ai-bubble"
               }`}>
               <div className="chat-bubble-text">{msg.text}</div>
@@ -1989,7 +1840,7 @@ const App = () => {
           </button>
           <button
             onClick={handleMicMuteToggle}
-            className={`control-button icon-button mic-button ${
+            className={`control-button icon-button mic-button ${ 
               isRecording && !isMutedRef.current ? "active" : ""
             } ${isMutedRef.current ? "muted" : ""}`}
             disabled={!isSessionActiveRef.current}
@@ -2057,10 +1908,11 @@ const App = () => {
             </div>
           </div>
           <div
-            className={`status-indicator icon-status-indicator audio-health-status ${
+            className={`status-indicator icon-status-indicator audio-health-status ${ 
               !audioHealth.isHealthy ? "status-warning" : ""
             }`}
-            title={`Audio Health: ${audioHealth.isHealthy ? "Good" : "Issues detected"}\n${audioHealth.issues.join("\n")}`}>
+            title={`Audio Health: ${audioHealth.isHealthy ? "Good" : "Issues detected"}
+${audioHealth.issues.join("\n")}`}>
             <div className="icon-status-content">
               <span className="icon-status-text">
                 Audio: {audioHealth.isHealthy ? "Healthy" : "Issues"}
@@ -2068,11 +1920,12 @@ const App = () => {
             </div>
           </div>
           <div
-            className={`status-indicator icon-status-indicator network-quality-status ${
+            className={`status-indicator icon-status-indicator network-quality-status ${ 
               networkQuality.score < 0.5 ? "status-warning" : 
               networkQuality.score < 0.8 ? "status-caution" : ""
             }`}
-            title={`Network Quality: ${(networkQuality.score * 100).toFixed(0)}%\nLatency: ${networkQuality.latency.toFixed(0)}ms`}>
+            title={`Network Quality: ${(networkQuality.score * 100).toFixed(0)}%
+Latency: ${networkQuality.latency.toFixed(0)}ms`}>
             <div className="icon-status-content">
               <span className="icon-status-text">
                 Net: {(networkQuality.score * 100).toFixed(0)}% ({networkQuality.latency.toFixed(0)}ms)
@@ -2081,7 +1934,8 @@ const App = () => {
           </div>
           <div
             className="status-indicator icon-status-indicator buffer-status"
-            title={`Input Buffer: ${(bufferMetrics.inputFillLevel * 100).toFixed(1)}%\nOutput Buffer: ${(bufferMetrics.outputFillLevel * 100).toFixed(1)}%`}>
+            title={`Input Buffer: ${(bufferMetrics.inputFillLevel * 100).toFixed(1)}%
+Output Buffer: ${(bufferMetrics.outputFillLevel * 100).toFixed(1)}%`}>
             <div className="icon-status-content">
               <span className="icon-status-text">
                 Buf: {(bufferMetrics.inputFillLevel * 100).toFixed(0)}%/{(bufferMetrics.outputFillLevel * 100).toFixed(0)}%

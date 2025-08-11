@@ -113,11 +113,13 @@ async def websocket_endpoint():
         f"🌐 🐛 DEBUG: NEW WebSocket connection accepted at {connection_start_time}")
     current_session_handle = None  # Initialize session handle
     client_ready_for_audio = False  # Track client audio readiness
-    initial_audio_buffer = []  # Buffer for initial audio chunks
+    # Use separate buffers for mic input and Gemini output
+    initial_mic_audio_buffer = []
+    initial_gemini_audio_buffer = []
     # UNIFIED TIMING: Reliable sequence counter for audio correlation
     audio_sequence_counter = 0
     print(
-        f"🐛 DEBUG: Initialized - client_ready_for_audio={client_ready_for_audio}, buffer_size={len(initial_audio_buffer)}")
+        f"🐛 DEBUG: Initialized - client_ready_for_audio={client_ready_for_audio}, buffer_size={len(initial_mic_audio_buffer)}")
 
     # Force Hindi language for all transcription
     language_code_to_use = "en-US"
@@ -131,7 +133,6 @@ async def websocket_endpoint():
     gemini_live_config = types.LiveConnectConfig(
         response_modalities=["AUDIO"],  # Matched to reference
         # system_instruction="""***CRITICAL: TOOL USAGE INSTRUCTIONS***
-
         # - If the user mentions a booking ID, call `Flight_Booking_Details_Agent`.
         # - If the user asks to cancel, call `Booking_Cancellation_Agent`.
         # - If the user asks for web check-in, call `Webcheckin_And_Boarding_Pass_Agent`.
@@ -298,7 +299,7 @@ async def websocket_endpoint():
             active_processing = True
 
             async def handle_client_input_and_forward():
-                nonlocal active_processing, client_ready_for_audio, initial_audio_buffer, audio_sequence_counter
+                nonlocal active_processing, client_ready_for_audio, initial_mic_audio_buffer, audio_sequence_counter
                 # print("Quart Backend: Starting handle_client_input_and_forward task.")
                 try:
                     while active_processing:
@@ -313,12 +314,12 @@ async def websocket_endpoint():
                                 if message_text == "CLIENT_AUDIO_READY":
                                     client_ready_for_audio = True
                                     print(
-                                        f"🔊 🐛 DEBUG: Client audio ready signal received! Buffered chunks: {len(initial_audio_buffer)}")
+                                        f"🔊 🐛 DEBUG: Client audio ready signal received! Buffered chunks: {len(initial_mic_audio_buffer)}")
                                     print(
                                         f"🐛 DEBUG: Connection time: {asyncio.get_event_loop().time() - connection_start_time:.2f}s")
                                     # Flush any buffered audio chunks
                                     flushed_count = 0
-                                    for buffered_chunk in initial_audio_buffer:
+                                    for buffered_chunk in initial_mic_audio_buffer:
                                         try:
                                             if isinstance(buffered_chunk, dict) and buffered_chunk.get("type") == "buffered_audio":
                                                 # UNIFIED TIMING: Send metadata BEFORE binary audio for correlation
@@ -345,7 +346,7 @@ async def websocket_endpoint():
                                         except Exception as send_exc:
                                             print(
                                                 f"🐛 DEBUG: Error sending buffered audio chunk #{flushed_count}: {send_exc}")
-                                    initial_audio_buffer.clear()
+                                    initial_mic_audio_buffer.clear()
                                     print(
                                         f"🐛 DEBUG: Flushed {flushed_count} buffered audio chunks, buffer cleared")
                                     continue
@@ -399,7 +400,7 @@ async def websocket_endpoint():
                     active_processing = False  # Ensure graceful shutdown of the other task
 
             async def receive_from_gemini_and_forward_to_client():
-                nonlocal active_processing, current_session_handle, client_ready_for_audio, initial_audio_buffer, connection_start_time, audio_sequence_counter
+                nonlocal active_processing, current_session_handle, client_ready_for_audio, initial_gemini_audio_buffer, connection_start_time, audio_sequence_counter
                 # print("Quart Backend: Starting receive_from_gemini_and_forward_to_client task.")
 
                 available_functions = {
@@ -450,13 +451,13 @@ async def websocket_endpoint():
                                     # Auto-flush buffer after 3 seconds if client hasn't signaled readiness
                                     if not client_ready_for_audio and time_since_connection > 3.0:
                                         print(
-                                            f"⏰ 🐛 DEBUG: Client readiness TIMEOUT after {time_since_connection:.2f}s - auto-flushing {len(initial_audio_buffer)} buffered chunks")
+                                            f"⏰ 🐛 DEBUG: Client readiness TIMEOUT after {time_since_connection:.2f}s - auto-flushing {len(initial_gemini_audio_buffer)} buffered chunks")
                                         print(
                                             f"🐛 DEBUG: This indicates CLIENT_AUDIO_READY signal was NOT received - investigating frontend")
                                         client_ready_for_audio = True
                                         # Flush buffered audio with binary format
                                         timeout_flushed_count = 0
-                                        for buffered_chunk in initial_audio_buffer:
+                                        for buffered_chunk in initial_gemini_audio_buffer:
                                             try:
                                                 if isinstance(buffered_chunk, dict) and buffered_chunk.get("type") == "buffered_audio":
                                                     # CONSISTENT METADATA-FIRST: Send metadata first (same as live transmission)
@@ -485,7 +486,7 @@ async def websocket_endpoint():
                                             except Exception as send_exc:
                                                 print(
                                                     f"🐛 DEBUG: Error sending timeout-flushed audio chunk #{timeout_flushed_count}: {send_exc}")
-                                        initial_audio_buffer.clear()
+                                        initial_gemini_audio_buffer.clear()
                                         print(
                                             f"🐛 DEBUG: Timeout flushed {timeout_flushed_count} binary chunks - investigating truncation cause")
 
@@ -543,13 +544,14 @@ async def websocket_endpoint():
                                             }
                                         }
 
-                                        initial_audio_buffer.append(
+                                        initial_gemini_audio_buffer.append(
                                             audio_chunk_data)
                                         print(
                                             f"📦 UNIFIED Buffered audio seq={sequence_num} ({chunk_size} bytes, {expected_duration_ms:.1f}ms) - client not ready (t+{time_since_connection:.1f}s)")
 
                                         # Enhanced buffer pressure management with flow control
-                                        buffer_size = len(initial_audio_buffer)
+                                        buffer_size = len(
+                                            initial_gemini_audio_buffer)
                                         max_buffer_size = 5000
 
                                         # Send buffer pressure warnings to frontend
@@ -572,8 +574,8 @@ async def websocket_endpoint():
                                         # Remove oldest chunks when buffer is full
                                         if buffer_size > max_buffer_size:
                                             removed_chunks = []
-                                            while len(initial_audio_buffer) > max_buffer_size:
-                                                removed_chunk = initial_audio_buffer.pop(
+                                            while len(initial_gemini_audio_buffer) > max_buffer_size:
+                                                removed_chunk = initial_gemini_audio_buffer.pop(
                                                     0)
                                                 removed_chunks.append(
                                                     removed_chunk)
@@ -582,7 +584,7 @@ async def websocket_endpoint():
                                             truncation_warning = {
                                                 "type": "audio_truncation",
                                                 "chunks_removed": len(removed_chunks),
-                                                "buffer_size": len(initial_audio_buffer),
+                                                "buffer_size": len(initial_gemini_audio_buffer),
                                                 "reason": "buffer_overflow"
                                             }
                                             try:
