@@ -909,7 +909,7 @@ export class NetworkResilienceManager {
   isReady() {
     return this.backpressureManager.socket && 
            this.backpressureManager.socket.readyState === WebSocket.OPEN &&
-           !this.backpressureManager.circuitBreaker.isOpen();
+           this.backpressureManager.circuitBreaker.state !== 'OPEN';
   }
   
   /**

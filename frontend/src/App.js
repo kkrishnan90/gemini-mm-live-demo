@@ -134,7 +134,7 @@ const sendAudioReadySignal = (playbackContext, socket, addLogEntry, connectionSi
 const isWebSocketReady = (socketRef, networkResilienceManagerRef) => {
   return socketRef?.readyState === WebSocket.OPEN &&
          networkResilienceManagerRef?.isReady() &&
-         !networkResilienceManagerRef?.audioCircuitBreaker?.isOpen();
+         networkResilienceManagerRef?.audioCircuitBreaker?.state !== 'OPEN';
 };
 
 const App = () => {
