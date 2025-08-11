@@ -448,10 +448,7 @@ async def websocket_endpoint():
                                         for buffered_chunk in initial_audio_buffer:
                                             try:
                                                 if isinstance(buffered_chunk, dict) and buffered_chunk.get("type") == "buffered_audio":
-                                                    # Send binary audio data first
-                                                    await websocket.send(buffered_chunk["audio_data"])
-                                                    
-                                                    # Send metadata separately
+                                                    # CONSISTENT METADATA-FIRST: Send metadata first (same as live transmission)
                                                     metadata = buffered_chunk["metadata"]
                                                     metadata["flushed_by_timeout"] = True
                                                     metadata_msg = {
@@ -459,6 +456,9 @@ async def websocket_endpoint():
                                                         **metadata
                                                     }
                                                     await websocket.send_json(metadata_msg)
+                                                    
+                                                    # Send binary audio data immediately after metadata
+                                                    await websocket.send(buffered_chunk["audio_data"])
                                                     
                                                     chunk_size = metadata["size_bytes"]
                                                     duration = metadata["expected_duration_ms"]

@@ -50,10 +50,13 @@ const generateUniqueId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
 
 // Unified audio readiness signal sender - ensures single CLIENT_AUDIO_READY per connection
-const sendAudioReadySignal = (playbackContext, socket, addLogEntry, audioReadySignalSentRef, reason = "unified") => {
-  // Check if signal already sent for this connection
-  if (audioReadySignalSentRef.current) {
-    addLogEntry("audio", `⏸️ Audio readiness signal already sent for this connection`);
+const sendAudioReadySignal = (playbackContext, socket, addLogEntry, connectionSignalTracker, reason = "unified") => {
+  // Get current connection ID
+  const connectionId = socket?._connectionId;
+  
+  // Check if signal already sent for this specific connection
+  if (connectionId && connectionSignalTracker.current.has(connectionId)) {
+    addLogEntry("audio", `⏸️ Audio readiness signal already sent for connection ${connectionId}`);
     return false;
   }
   
@@ -70,8 +73,13 @@ const sendAudioReadySignal = (playbackContext, socket, addLogEntry, audioReadySi
   
   try {
     socket.send("CLIENT_AUDIO_READY");
-    audioReadySignalSentRef.current = true;  // Mark as sent
-    addLogEntry("audio", `📤 Sent CLIENT_AUDIO_READY signal to backend (${reason}) - UNIFIED SIGNAL`);
+    
+    // Track this signal for this specific connection
+    if (connectionId) {
+      connectionSignalTracker.current.add(connectionId);
+    }
+    
+    addLogEntry("audio", `📤 Sent CLIENT_AUDIO_READY signal to backend for connection ${connectionId} (${reason}) - UNIFIED SIGNAL`);
     return true;
   } catch (error) {
     addLogEntry("error", `Failed to send CLIENT_AUDIO_READY signal: ${error.message}`);
@@ -128,7 +136,7 @@ const App = () => {
   const logsAreaRef = useRef(null);
   const chatAreaRef = useRef(null);
   const glassToGlassLatencyRef = useRef([]);
-  const audioReadySignalSentRef = useRef(false);  // Track if CLIENT_AUDIO_READY has been sent
+  const connectionSignalTracker = useRef(new Set());  // Track CLIENT_AUDIO_READY signals per connection
 
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -520,7 +528,7 @@ const App = () => {
             );
             // Send unified audio readiness signal when context becomes running
             if (playbackAudioContextRef.current?.state === "running") {
-              sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, audioReadySignalSentRef, "context-state-change");
+              sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, connectionSignalTracker, "context-state-change");
             }
           };
           
@@ -531,7 +539,7 @@ const App = () => {
           
           // Send unified audio readiness signal if already running
           if (playbackAudioContextRef.current.state === "running") {
-            sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, audioReadySignalSentRef, "context-creation-immediate");
+            sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, connectionSignalTracker, "context-creation-immediate");
           }
         } catch (e) {
           console.error(
@@ -562,7 +570,7 @@ const App = () => {
             
             // Send unified audio readiness signal after successful resume
             if (playbackAudioContextRef.current.state === "running") {
-              sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, audioReadySignalSentRef, "context-resume");
+              sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, connectionSignalTracker, "context-resume");
             }
           } catch (e) {
             console.error(`[CTX_PLAYBACK_MGR] FAILED to RESUME PlaybackCTX`, e);
@@ -666,9 +674,20 @@ const App = () => {
       const currentTime = audioCtx.currentTime;
       const audioBufferDuration = audioBuffer.duration;
       
-      // Use backend-provided duration if available (more accurate), otherwise use calculated duration
+      // SINGLE SOURCE OF TRUTH: Use ONLY backend metadata for timing
       const expectedDurationSeconds = audioChunk.expectedDurationMs ? 
-        audioChunk.expectedDurationMs / 1000 : audioBufferDuration;
+        audioChunk.expectedDurationMs / 1000 : null;
+      
+      // Fail gracefully if backend timing metadata is missing
+      if (!expectedDurationSeconds) {
+        addLogEntry("error", `Missing backend timing metadata for chunk seq=${audioChunk.sequence} - skipping chunk`);
+        addLogEntry("audio_flow_control", "⚠️ Audio chunk skipped due to missing timing metadata - continuing with next chunk");
+        // Continue processing next chunks rather than breaking the entire flow
+        if (!isPlayingRef.current && audioQueueRef.current.length > 0) {
+          setTimeout(() => playNextGeminiChunk(), 10);
+        }
+        return;
+      }
       
       // Initialize scheduled time with minimal buffer for first chunk
       if (scheduledPlaybackTimeRef.current === 0 || scheduledPlaybackTimeRef.current < currentTime) {
@@ -1385,12 +1404,13 @@ const App = () => {
         setWebSocketStatus("Open");
         addLogEntry("ws", `WebSocket Connected (Lang: ${language}).`);
         
-        // Reset audio readiness signal tracking for new connection
-        audioReadySignalSentRef.current = false;
+        // Generate unique connection ID for this WebSocket connection
+        const connectionId = `ws-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+        socketRef.current._connectionId = connectionId;
         
         // Check if audio chain is ready and send unified signal
         if (playbackAudioContextRef.current && playbackAudioContextRef.current.state === "running") {
-          sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, audioReadySignalSentRef, "websocket-onopen");
+          sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, connectionSignalTracker, "websocket-onopen");
         }
         
         // Connect WebSocket to network resilience manager
@@ -1617,6 +1637,12 @@ const App = () => {
             "Unexpected WS close during active session. Ensuring session is marked inactive."
           );
           setIsSessionActive(false);
+        }
+        
+        // Clean up connection tracking for this closed connection
+        if (event.target && event.target._connectionId) {
+          connectionSignalTracker.current.delete(event.target._connectionId);
+          addLogEntry("audio", `Cleaned up connection tracking for ${event.target._connectionId}`);
         }
       };
     },
