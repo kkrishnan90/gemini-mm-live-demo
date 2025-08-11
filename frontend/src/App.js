@@ -31,6 +31,8 @@ const MAX_AUDIO_CONTEXT_RECOVERY_ATTEMPTS = 5;
 const AUDIO_CONTEXT_RECOVERY_DELAY = 1000;
 const AUDIO_RECOVERY_DELAY_MS = 10; // Delay for audio queue recovery operations
 const LATENCY_TARGET_MS = 20; // Target latency in milliseconds
+const JITTER_BUFFER_MIN_FILL = 2; // The minimum number of chunks required in the buffer before playback starts.
+const JITTER_BUFFER_MAX_FILL = 10; // The maximum number of chunks to hold in the buffer.
 
 const LANGUAGES = [
   {code: "en-IN", name: "English (Hinglish)"},
@@ -261,7 +263,12 @@ const App = () => {
   const audioMetricsRef = useRef({ dropouts: 0, latency: 0, quality: 1.0, retryCount: 0, failedTransmissions: 0 });
   const lastSendTimeRef = useRef(0);
   const retryQueueRef = useRef([]);
-  const audioQueueRef = useRef([]);
+  const jitterBufferRef = useRef([]);
+  const isPlaybackStartedRef = useRef(false);
+  const playbackIntervalRef = useRef(null);
+  const adaptiveJitterBufferSize = useRef(JITTER_BUFFER_MIN_FILL);
+  const nextStartTimeRef = useRef(0);
+  const gainNodeRef = useRef(null);
   const audioSequenceRef = useRef(0);  // Track sequence numbers for audio synchronization
   const pendingMetadataRef = useRef(new Map());  // Store metadata by sequence for correlation
   const audioContextRecoveryAttempts = useRef(0);
@@ -706,6 +713,8 @@ const App = () => {
           addLogEntry("audio", "Attempting to create Playback AudioContext.");
           playbackAudioContextRef.current = new (window.AudioContext ||
             window.webkitAudioContext)({sampleRate: OUTPUT_SAMPLE_RATE});
+          gainNodeRef.current = playbackAudioContextRef.current.createGain();
+          gainNodeRef.current.connect(playbackAudioContextRef.current.destination);
             
           // Set up enhanced state monitoring for playback context
           monitorAudioContextState(playbackAudioContextRef.current, 'PlaybackAudioContext');
@@ -778,87 +787,80 @@ const App = () => {
     [addLogEntry, monitorAudioContextState]
   );
 
-  const playNextGeminiChunk = useCallback(async () => {
-    if (isPlayingRef.current || audioQueueRef.current.length === 0) return;
-    isPlayingRef.current = true;
-    
-    const arrayBuffer = audioQueueRef.current.shift();
-    const audioCtx = await getPlaybackAudioContext(
-      "playNextGeminiChunk_SystemAction"
-    );
+  const playAudioChunk = useCallback(async (arrayBuffer) => {
+    const audioCtx = await getPlaybackAudioContext("playNextGeminiChunk_SystemAction");
     if (!audioCtx || audioCtx.state !== "running") {
-      addLogEntry(
-        "error",
-        `Playback FAIL: Audio system not ready (${audioCtx?.state})`
-      );
-      isPlayingRef.current = false;
+      addLogEntry("error", `Playback FAIL: Audio system not ready (${audioCtx?.state})`);
+      jitterBufferRef.current.unshift(arrayBuffer);
       return;
     }
+
     try {
-      if (
-        !arrayBuffer ||
-        arrayBuffer.byteLength === 0 ||
-        arrayBuffer.byteLength % 2 !== 0
-      ) {
-        addLogEntry(
-          "warning",
-          "Received empty or invalid audio chunk. Skipping."
-        );
-        isPlayingRef.current = false;
-        if (audioQueueRef.current.length > 0) playNextGeminiChunk();
-        return;
-      }
       const pcm16Data = new Int16Array(arrayBuffer);
       const float32Data = new Float32Array(pcm16Data.length);
-      for (let i = 0; i < pcm16Data.length; i++)
+      for (let i = 0; i < pcm16Data.length; i++) {
         float32Data[i] = pcm16Data[i] / 32768.0;
-      if (float32Data.length === 0) {
-        addLogEntry(
-          "warning",
-          "Received empty audio chunk (after conversion). Skipping."
-        );
-        isPlayingRef.current = false;
-        if (audioQueueRef.current.length > 0) playNextGeminiChunk();
-        return;
       }
-      const audioBuffer = audioCtx.createBuffer(
-        1,
-        float32Data.length,
-        OUTPUT_SAMPLE_RATE
-      );
+
+      const audioBuffer = audioCtx.createBuffer(1, float32Data.length, OUTPUT_SAMPLE_RATE);
       audioBuffer.copyToChannel(float32Data, 0);
+
       const source = audioCtx.createBufferSource();
       source.buffer = audioBuffer;
+
+      const crossfadeDuration = 0.01; // 10ms crossfade
+
+      if (currentAudioSourceRef.current) {
+        // Fade out the previous source
+        currentAudioSourceRef.current.gain.linearRampToValueAtTime(0, audioCtx.currentTime);
+      }
+
       const gainNode = audioCtx.createGain();
-      gainNode.gain.setValueAtTime(0.8, audioCtx.currentTime);
       source.connect(gainNode);
-      gainNode.connect(audioCtx.destination);
-      
+      gainNode.connect(gainNodeRef.current);
+
+
+      // Fade in the new source
+      gainNode.gain.setValueAtTime(0, audioCtx.currentTime);
+      gainNode.gain.linearRampToValueAtTime(0.8, audioCtx.currentTime + crossfadeDuration);
+
       source.onended = () => {
-        addLogEntry("gemini_audio", "Audio chunk finished playing.");
-        isPlayingRef.current = false;
-        currentAudioSourceRef.current = null;
-        if (audioQueueRef.current.length > 0) playNextGeminiChunk();
+        if (jitterBufferRef.current.length > 0) {
+          const nextChunk = jitterBufferRef.current.shift();
+          playAudioChunk(nextChunk);
+        } else {
+          isPlayingRef.current = false;
+        }
         source.disconnect();
         gainNode.disconnect();
       };
-      
-      currentAudioSourceRef.current = source;
-      addLogEntry("gemini_audio", "Starting playback of Gemini audio chunk...");
-      source.start();
-      
+
+      source.start(audioCtx.currentTime);
+      isPlayingRef.current = true;
+      currentAudioSourceRef.current = { source, gain: gainNode.gain };
+
     } catch (error) {
-      currentAudioSourceRef.current = null;
       addLogEntry("error", `Playback Error: ${error.message}`);
       isPlayingRef.current = false;
-      if (audioQueueRef.current.length > 0) playNextGeminiChunk();
     }
   }, [getPlaybackAudioContext, addLogEntry]);
+
+  useEffect(() => {
+    const playbackLoop = () => {
+      if (jitterBufferRef.current.length >= adaptiveJitterBufferSize.current && !isPlayingRef.current) {
+        const audioChunk = jitterBufferRef.current.shift();
+        playAudioChunk(audioChunk);
+      }
+      requestAnimationFrame(playbackLoop);
+    };
+    const animationFrameId = requestAnimationFrame(playbackLoop);
+    return () => cancelAnimationFrame(animationFrameId);
+  }, [playAudioChunk]);
 
   const stopSystemAudioPlayback = useCallback(() => {
     if (currentAudioSourceRef.current) {
       try {
-        currentAudioSourceRef.current.stop();
+        currentAudioSourceRef.current.source.stop();
         addLogEntry(
           "gemini_audio",
           "System audio playback stopped by barge-in."
@@ -871,17 +873,15 @@ const App = () => {
       }
       currentAudioSourceRef.current = null;
     }
-    const clearedCount = audioQueueRef.current.length;
-    audioQueueRef.current = [];
-    isPlayingRef.current = false;
-    
-    // Simple restart - no scheduling to reset
-    
-    if (clearedCount > 0) {
-      addLogEntry("audio_sequence", `Cleared ${clearedCount} audio chunks from queue due to barge-in`);
+    if (gainNodeRef.current) {
+      gainNodeRef.current.disconnect();
+      gainNodeRef.current = null;
     }
-    
-    addLogEntry("gemini_audio", "Gemini audio queue cleared due to barge-in.");
+    jitterBufferRef.current = [];
+    isPlayingRef.current = false;
+    isPlaybackStartedRef.current = false;
+    adaptiveJitterBufferSize.current = JITTER_BUFFER_MIN_FILL;
+    nextStartTimeRef.current = 0;
   }, [addLogEntry]);
 
   // WebSocket backpressure handling (moved up to fix dependency order)
@@ -1632,9 +1632,8 @@ const App = () => {
         } else if (event.data instanceof ArrayBuffer) {
           addLogEntry("audio_receive", `📥 Received binary audio from backend: ${event.data.byteLength} bytes`);
           
-          // SIMPLE APPROACH: Queue audio chunks directly for immediate playback
-          audioQueueRef.current.push(event.data);
-          if (!isPlayingRef.current) playNextGeminiChunk();
+          // Push to jitter buffer
+          jitterBufferRef.current.push(event.data);
         } else {
           addLogEntry(
             "ws_unknown_type",
@@ -1724,7 +1723,7 @@ const App = () => {
     },
     [
       addLogEntry,
-      playNextGeminiChunk,
+      playAudioChunk,
       handleStartListening,
       handleStopListeningAndCleanupMic,
     ]

@@ -550,7 +550,7 @@ async def websocket_endpoint():
 
                                         # Enhanced buffer pressure management with flow control
                                         buffer_size = len(initial_audio_buffer)
-                                        max_buffer_size = 500
+                                        max_buffer_size = 5000
 
                                         # Send buffer pressure warnings to frontend
                                         if buffer_size > max_buffer_size * 0.8:  # 80% threshold
