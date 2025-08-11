@@ -929,6 +929,20 @@ export class NetworkResilienceManager {
   }
   
   /**
+   * PERMANENT FIX: Force circuit breaker recovery if WebSocket is healthy
+   * This prevents the circuit breaker from staying permanently open
+   */
+  forceCircuitBreakerRecovery() {
+    if (this.backpressureManager.socket && 
+        this.backpressureManager.socket.readyState === WebSocket.OPEN &&
+        this.backpressureManager.circuitBreaker.state === 'OPEN') {
+      this.backpressureManager.circuitBreaker.reset();
+      return true;
+    }
+    return false;
+  }
+  
+  /**
    * Send data with resilience handling
    */
   async sendData(data, priority = 'normal') {

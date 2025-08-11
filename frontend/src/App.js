@@ -129,12 +129,43 @@ const sendAudioReadySignal = (playbackContext, socket, addLogEntry, connectionSi
 };
 
 /**
- * Check if WebSocket and network resilience manager are ready for audio transmission
+ * PERMANENT FIX: Robust WebSocket readiness check with circuit breaker recovery
+ * This function ensures WebSocket readiness validation NEVER blocks legitimate audio transmission
  */
-const isWebSocketReady = (socketRef, networkResilienceManagerRef) => {
-  return socketRef?.readyState === WebSocket.OPEN &&
-         networkResilienceManagerRef?.isReady() &&
-         networkResilienceManagerRef?.audioCircuitBreaker?.state !== 'OPEN';
+const isWebSocketReady = (socketRef, networkResilienceManagerRef, addLogEntry) => {
+  // Primary check: WebSocket must be open
+  if (!socketRef || socketRef.readyState !== WebSocket.OPEN) {
+    addLogEntry && addLogEntry("debug", "WebSocket readiness failed: WebSocket not open");
+    return false;
+  }
+  
+  // Secondary check: Network resilience manager must exist
+  if (!networkResilienceManagerRef) {
+    addLogEntry && addLogEntry("debug", "WebSocket readiness failed: NetworkResilienceManager not initialized");
+    return false;
+  }
+  
+  // CRITICAL FIX: Check circuit breaker state and auto-recover if needed
+  const circuitBreakerState = networkResilienceManagerRef.audioCircuitBreaker?.state;
+  if (circuitBreakerState === 'OPEN') {
+    // Auto-recovery: Reset circuit breaker if WebSocket is actually healthy
+    if (socketRef.readyState === WebSocket.OPEN) {
+      addLogEntry && addLogEntry("recovery", "Auto-recovering circuit breaker - WebSocket is healthy");
+      networkResilienceManagerRef.resetCircuitBreaker();
+      return true; // Allow transmission after recovery
+    }
+    addLogEntry && addLogEntry("debug", "WebSocket readiness failed: Circuit breaker is OPEN and cannot auto-recover");
+    return false;
+  }
+  
+  // Fallback check: Use network resilience manager's own readiness check
+  const isManagerReady = networkResilienceManagerRef.isReady();
+  if (!isManagerReady) {
+    addLogEntry && addLogEntry("debug", "WebSocket readiness failed: NetworkResilienceManager reports not ready");
+    return false;
+  }
+  
+  return true;
 };
 
 const App = () => {
@@ -200,8 +231,8 @@ const App = () => {
 
   // Log entry function - defined early to avoid initialization errors
   const addLogEntry = useCallback((type, content) => {
-    // Show tool calls, errors, and audio-related logs for debugging
-    const allowedTypes = ["toolcall", "error", "audio_receive", "audio_sequence", "gemini_audio", "audio_flow_control"];
+    // Show tool calls, errors, audio-related logs, and recovery messages for debugging
+    const allowedTypes = ["toolcall", "error", "audio_receive", "audio_sequence", "gemini_audio", "audio_flow_control", "recovery", "debug"];
     if (!allowedTypes.includes(type)) {
       return;
     }
@@ -242,6 +273,19 @@ const App = () => {
 
         // Setup event handlers
         setupAudioSystemEventHandlers();
+        
+        // PERMANENT FIX: Setup periodic circuit breaker health check
+        const healthCheckInterval = setInterval(() => {
+          if (networkResilienceManagerRef.current) {
+            const recovered = networkResilienceManagerRef.current.forceCircuitBreakerRecovery();
+            if (recovered) {
+              addLogEntry("recovery", "Periodic health check recovered circuit breaker");
+            }
+          }
+        }, 5000); // Check every 5 seconds
+        
+        // Store interval reference for cleanup
+        networkResilienceManagerRef.current._healthCheckInterval = healthCheckInterval;
 
         addLogEntry("system", "Enhanced audio system initialized successfully");
       } catch (error) {
@@ -327,6 +371,10 @@ const App = () => {
     }
 
     if (networkResilienceManagerRef.current) {
+      // PERMANENT FIX: Cleanup health check interval
+      if (networkResilienceManagerRef.current._healthCheckInterval) {
+        clearInterval(networkResilienceManagerRef.current._healthCheckInterval);
+      }
       networkResilienceManagerRef.current.destroy();
       networkResilienceManagerRef.current = null;
     }
@@ -1102,18 +1150,23 @@ const App = () => {
         audioBufferManagerRef.current.measureGlassToGlassLatency(data.timestamp);
       }
 
-      // Validate WebSocket readiness before sending
-      if (!isWebSocketReady(socketRef.current, networkResilienceManagerRef.current)) {
-        addLogEntry("error", "WebSocket not ready for audio transmission - circuit breaker or connection issue");
+      // PERMANENT FIX: Enhanced WebSocket readiness validation with detailed logging
+      if (!isWebSocketReady(socketRef.current, networkResilienceManagerRef.current, addLogEntry)) {
+        addLogEntry("error", "WebSocket not ready for audio transmission - see debug logs for details");
         return;
       }
 
-      // Send via network resilience manager
+      // Send via network resilience manager with ultimate fallback
       if (networkResilienceManagerRef.current) {
         try {
           networkResilienceManagerRef.current.sendData(data.audioData);
         } catch (error) {
-          addLogEntry("error", `Audio transmission failed: ${error.message}`);
+          addLogEntry("error", `Audio transmission failed via NetworkResilienceManager: ${error.message}`);
+          // PERMANENT FIX: Ultimate fallback - direct WebSocket send
+          if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            addLogEntry("recovery", "Using direct WebSocket fallback for audio transmission");
+            sendAudioChunkWithBackpressure(data.audioData);
+          }
         }
       } else {
         // Fallback to old method
