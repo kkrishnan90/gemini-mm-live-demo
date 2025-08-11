@@ -369,6 +369,54 @@ export class ScriptProcessorFallback {
   }
 
   /**
+   * Start audio processing with media stream
+   */
+  async start(mediaStream) {
+    if (!mediaStream) {
+      throw new Error("Media stream is required to start audio processing");
+    }
+
+    // Create media stream source
+    this.mediaStreamSource = this.audioContext.createMediaStreamSource(mediaStream);
+    
+    // Connect the audio graph: MediaStreamSource -> ScriptProcessor -> Destination
+    this.connect(this.mediaStreamSource);
+    
+    // Set recording state
+    this.setRecording(true);
+    
+    return this;
+  }
+
+  /**
+   * Pause audio processing
+   */
+  pause() {
+    this.setRecording(false);
+    return this;
+  }
+
+  /**
+   * Resume/unpause audio processing
+   */
+  unpause() {
+    this.setRecording(true);
+    return this;
+  }
+
+  /**
+   * Stop audio processing
+   */
+  stop() {
+    this.setRecording(false);
+    if (this.mediaStreamSource) {
+      this.mediaStreamSource.disconnect();
+      this.mediaStreamSource = null;
+    }
+    return this;
+  }
+
+  /**
    * Set muted state
    */
   setMuted(muted) {
@@ -386,8 +434,18 @@ export class ScriptProcessorFallback {
    * Connect to audio source
    */
   connect(source) {
-    source.connect(this.scriptNode);
-    this.scriptNode.connect(this.audioContext.destination);
+    if (source) {
+      source.connect(this.scriptNode);
+    }
+    // Connect to destination only if not already connected
+    try {
+      this.scriptNode.connect(this.audioContext.destination);
+    } catch (error) {
+      // Already connected, ignore error
+      if (!error.message.includes('already connected')) {
+        console.warn('ScriptProcessor connection warning:', error.message);
+      }
+    }
     return this;
   }
 
@@ -433,6 +491,12 @@ export class ScriptProcessorFallback {
    * Cleanup resources
    */
   cleanup() {
+    // Stop and disconnect media stream source
+    if (this.mediaStreamSource) {
+      this.mediaStreamSource.disconnect();
+      this.mediaStreamSource = null;
+    }
+
     // Disconnect from audio graph
     this.disconnect();
 
@@ -625,6 +689,58 @@ class AudioWorkletWrapper {
     });
   }
 
+  /**
+   * Start audio processing with media stream
+   */
+  async start(mediaStream) {
+    if (!mediaStream) {
+      throw new Error("Media stream is required to start audio processing");
+    }
+
+    // Create media stream source and connect to worklet
+    this.mediaStreamSource = this.workletNode.context.createMediaStreamSource(mediaStream);
+    this.mediaStreamSource.connect(this.workletNode);
+    
+    // Notify worklet to start processing
+    this.workletNode.port.postMessage({
+      type: "START_PROCESSING",
+      data: { recording: true },
+    });
+    
+    return this;
+  }
+
+  /**
+   * Pause audio processing
+   */
+  pause() {
+    this.setRecording(false);
+    return this;
+  }
+
+  /**
+   * Resume/unpause audio processing
+   */
+  unpause() {
+    this.setRecording(true);
+    return this;
+  }
+
+  /**
+   * Stop audio processing
+   */
+  stop() {
+    this.setRecording(false);
+    if (this.mediaStreamSource) {
+      this.mediaStreamSource.disconnect();
+      this.mediaStreamSource = null;
+    }
+    this.workletNode.port.postMessage({
+      type: "STOP_PROCESSING",
+    });
+    return this;
+  }
+
   getMetrics() {
     this.workletNode.port.postMessage({
       type: "GET_METRICS",
@@ -648,6 +764,12 @@ class AudioWorkletWrapper {
    * Cleanup
    */
   destroy() {
+    // Stop and disconnect media stream source
+    if (this.mediaStreamSource) {
+      this.mediaStreamSource.disconnect();
+      this.mediaStreamSource = null;
+    }
+    
     this.workletNode.disconnect();
     this.eventHandlers.clear();
   }
