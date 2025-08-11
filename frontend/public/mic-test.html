@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Microphone Test</title>
+</head>
+<body>
+    <h1>Microphone Test</h1>
+    <button id="testMic">Test Microphone</button>
+    <div id="status"></div>
+    <div id="audioLevels"></div>
+
+    <script>
+        document.getElementById('testMic').addEventListener('click', async () => {
+            const status = document.getElementById('status');
+            const audioLevels = document.getElementById('audioLevels');
+            
+            try {
+                status.textContent = 'Requesting microphone access...';
+                
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        sampleRate: 16000,
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        channelCount: 1,
+                    }
+                });
+                
+                status.textContent = 'Microphone access granted! Creating audio context...';
+                
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)({
+                    sampleRate: 16000,
+                    latencyHint: 'interactive',
+                });
+                
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                }
+                
+                status.textContent = `Audio context state: ${audioContext.state}`;
+                
+                const source = audioContext.createMediaStreamSource(stream);
+                const analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+                
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                
+                function updateLevels() {
+                    analyser.getByteFrequencyData(dataArray);
+                    const avg = dataArray.reduce((sum, val) => sum + val, 0) / dataArray.length;
+                    audioLevels.textContent = `Audio level: ${Math.round(avg)}`;
+                    requestAnimationFrame(updateLevels);
+                }
+                
+                updateLevels();
+                status.textContent = 'Microphone working! Check audio levels above.';
+                
+            } catch (error) {
+                status.textContent = `Error: ${error.message}`;
+                console.error('Microphone test error:', error);
+            }
+        });
+    </script>
+</body>
+</html>

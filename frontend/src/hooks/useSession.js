@@ -235,6 +235,7 @@ export const useSession = () => {
   } = useAudio(
     addLogEntry,
     isSessionActive,
+    isSessionActiveRef,
     sendAudioChunkWithBackpressure,
     socketRef,
     true, // Force isWebSocketReady to true to avoid blocking
@@ -255,6 +256,7 @@ export const useSession = () => {
     handleStartListeningWrapper,
     networkResilienceManagerRef,
     isSessionActive,
+    isSessionActiveRef,
     isRecording,
     selectedLanguage,
     isAudioContextReady,
@@ -282,6 +284,9 @@ export const useSession = () => {
   }
 
   const handleToggleSession = useCallback(async () => {
+    console.log("🔥 PLAY BUTTON CLICKED - handleToggleSession called!");
+    addLogEntry("debug", "🔥 PLAY BUTTON CLICKED - handleToggleSession called!");
+    
     if (isSessionActiveRef.current) {
       addLogEntry("session_control", "User requested to STOP session.");
       handleStopListeningAndCleanupMic();
@@ -292,13 +297,21 @@ export const useSession = () => {
       setIsSessionActive(false);
     } else {
       addLogEntry("session_control", "User requested to START session.");
+      console.log("🚀 Starting new session...");
+      
       // --- AUDIO CONTEXT FIX ---
       // This is a user gesture, so we can resume the audio context here.
       // This is critical for browsers that block audio from starting without interaction.
+      console.log("🎵 Resuming audio context...");
       await resumeAudioContext();
+      
       const currentLangName = LANGUAGES.find((l) => l.code === selectedLanguage)?.name || selectedLanguage;
       addLogEntry("session_flow", `Attempting to connect WebSocket for session start (Language: ${currentLangName}).`);
+      
+      console.log("✅ Setting session active...");
       setIsSessionActive(true);
+      
+      console.log("🌐 Connecting WebSocket...");
       connectWebSocket(selectedLanguage);
       addLogEntry("session_status", "Session PENDING (WebSocket connecting, Mic to start on WS open).");
     }

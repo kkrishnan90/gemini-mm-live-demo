@@ -6,9 +6,14 @@ import {
   faStop,
   faPlay,
 } from '@fortawesome/free-solid-svg-icons';
+import { AudioWave } from './AudioWave';
+import { useAudioVisualization } from '../hooks/useAudioVisualization';
 
 export const ActionControls = (props) => {
   const { isSessionActive, isRecording, isMuted, handleToggleSession, handleMicMuteToggle } = props;
+  
+  // Simple simulated audio levels for visualization - no microphone interference
+  const audioLevels = useAudioVisualization(isSessionActive, isMuted);
   return (
     <div className="control-tray main-controls">
       <button
@@ -27,7 +32,7 @@ export const ActionControls = (props) => {
       <button
         onClick={handleMicMuteToggle}
         className={`control-button icon-button mic-button ${ 
-          isRecording && !isMuted ? "active" : ""
+          isSessionActive && !isMuted ? "unmuted" : ""
         } ${isMuted ? "muted" : ""}`}
         disabled={!isSessionActive}
         title={
@@ -47,15 +52,10 @@ export const ActionControls = (props) => {
         </div>
       </button>
       <div className="audio-signal-placeholder">
-        {isRecording && !isMuted && (
-          <div className="audio-wave">
-            <span></span>
-            <span></span>
-            <span></span>
-            <span></span>
-            <span></span>
-          </div>
-        )}
+        <AudioWave 
+          audioLevels={audioLevels} 
+          isActive={isSessionActive && !isMuted} 
+        />
       </div>
     </div>
   );

@@ -16,6 +16,7 @@ import {
 export const useAudio = (
   addLogEntry,
   isSessionActive,
+  isSessionActiveRef,
   sendAudioChunkWithBackpressure,
   socketRef,
   isWebSocketReady,
@@ -212,11 +213,14 @@ export const useAudio = (
 
   const initializeEnhancedAudioProcessor = useCallback(async () => {
     try {
+      addLogEntry("debug", "Starting initializeEnhancedAudioProcessor...");
+      
       // Clean up existing context if closed
       if (
         localAudioContextRef.current &&
         localAudioContextRef.current.state === "closed"
       ) {
+        addLogEntry("debug", "Cleaning up closed AudioContext");
         localAudioContextRef.current = null;
       }
 
@@ -228,6 +232,7 @@ export const useAudio = (
           sampleRate: INPUT_SAMPLE_RATE,
           latencyHint: "interactive",
         });
+        addLogEntry("debug", `AudioContext created, state: ${localAudioContextRef.current.state}`);
         monitorAudioContextState(
           localAudioContextRef.current,
           "LocalAudioContext"
@@ -238,6 +243,7 @@ export const useAudio = (
       if (localAudioContextRef.current.state === "suspended") {
         addLogEntry("info", "Resuming suspended AudioContext");
         await localAudioContextRef.current.resume();
+        addLogEntry("debug", `AudioContext resumed, new state: ${localAudioContextRef.current.state}`);
       }
 
       // Check if context is ready
@@ -273,6 +279,7 @@ export const useAudio = (
 
       // Create Enhanced Audio Processor
       if (!audioProcessorRef.current) {
+        addLogEntry("debug", "Creating enhanced audio processor...");
         audioProcessorRef.current = await createAudioProcessor(
           localAudioContextRef.current,
           {
@@ -286,8 +293,10 @@ export const useAudio = (
           },
           addLogEntry
         );
+        addLogEntry("debug", `Audio processor created: ${audioProcessorRef.current ? 'SUCCESS' : 'FAILED'}`);
 
         if (audioProcessorRef.current) {
+          addLogEntry("debug", "Setting up audio processor event handlers...");
           setupAudioProcessorEventHandlers();
           addLogEntry("success", "Enhanced audio processor initialized and configured");
           setIsAudioContextReady(true);
@@ -538,23 +547,39 @@ export const useAudio = (
 
   const handleStartListening = useCallback(
     async (isResuming = false) => {
-      if (!isSessionActive) {
+      addLogEntry("debug", `handleStartListening called with isResuming=${isResuming}, isSessionActive=${isSessionActive}, isRecording=${isRecordingRef.current}`);
+      console.log(`🎤 handleStartListening: isSessionActive=${isSessionActive}, isRecording=${isRecordingRef.current}`);
+      
+      // Use ref to avoid race condition - check both state and ref
+      const sessionIsReallyActive = isSessionActiveRef?.current || isSessionActive;
+      console.log(`🎤 Session check: state=${isSessionActive}, ref=${isSessionActiveRef?.current}, final=${sessionIsReallyActive}`);
+      
+      if (!sessionIsReallyActive) {
+        console.log("🎤 EARLY RETURN: Session not active");
         addLogEntry("warning", "Start listening called but session not active.");
         return;
       }
       if (isRecordingRef.current) {
+        console.log("🎤 EARLY RETURN: Already listening");
         addLogEntry("info", "Already listening.");
         return;
       }
+      
+      console.log("🎤 Proceeding with microphone initialization...");
       try {
         if (!isResuming) {
           if (!audioProcessorRef.current) {
+            addLogEntry("debug", "Audio processor not found, initializing...");
             const processorInitialized = await initializeEnhancedAudioProcessor();
+            addLogEntry("debug", `Audio processor initialization result: ${processorInitialized}`);
             if (!processorInitialized) {
               addLogEntry("error", "Cannot start listening: audio processor failed to initialize.");
               return;
             }
           }
+          
+          addLogEntry("debug", "About to request microphone access...");
+          
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
               sampleRate: INPUT_SAMPLE_RATE,
@@ -564,7 +589,14 @@ export const useAudio = (
               channelCount: 1,
             },
           });
+          
+          addLogEntry("debug", `Microphone stream obtained. Tracks: ${stream.getAudioTracks().length}`);
+          addLogEntry("debug", `Audio track enabled: ${stream.getAudioTracks()[0]?.enabled}`);
+          addLogEntry("debug", `Audio track ready state: ${stream.getAudioTracks()[0]?.readyState}`);
+          
           mediaStreamRef.current = stream;
+          
+          addLogEntry("debug", "Starting audio processor with stream...");
           await audioProcessorRef.current.start(stream);
           addLogEntry("mic", "Microphone access granted and processor started.");
         } else {
@@ -580,6 +612,29 @@ export const useAudio = (
       } catch (error) {
         addLogEntry("error", `Could not start microphone: ${error.message}`);
         console.error("Error starting microphone:", error);
+        
+        // More specific error handling
+        if (error.name === 'NotAllowedError') {
+          addLogEntry("error", "Microphone permission denied by user. Please allow microphone access and try again.");
+        } else if (error.name === 'NotFoundError') {
+          addLogEntry("error", "No microphone found. Please connect a microphone and try again.");
+        } else if (error.name === 'NotSupportedError') {
+          addLogEntry("error", "Microphone not supported by this browser.");
+        } else if (error.name === 'OverconstrainedError') {
+          addLogEntry("error", "Microphone constraints not supported. Trying with relaxed constraints...");
+          
+          // Try with relaxed constraints
+          try {
+            const fallbackStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            mediaStreamRef.current = fallbackStream;
+            await audioProcessorRef.current.start(fallbackStream);
+            setIsRecording(true);
+            setIsMuted(false);
+            addLogEntry("mic", "Microphone started with fallback constraints.");
+          } catch (fallbackError) {
+            addLogEntry("error", `Fallback microphone access also failed: ${fallbackError.message}`);
+          }
+        }
       }
     },
     [addLogEntry, isSessionActive, initializeEnhancedAudioProcessor]

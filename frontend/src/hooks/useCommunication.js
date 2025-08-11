@@ -16,6 +16,7 @@ export const useCommunication = (
   handleStartListening,
   networkResilienceManagerRef,
   isSessionActive,
+  isSessionActiveRef,
   isRecording,
   language,
   isAudioContextReady,
@@ -189,6 +190,7 @@ export const useCommunication = (
           window.webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
       socketRef.current.binaryType = "arraybuffer";
       socketRef.current.onopen = () => {
+        console.log("🌐 WebSocket onopen event fired!");
         addLogEntry("debug", "WebSocket onopen event fired");
         if (networkResilienceManagerRef.current) {
           networkResilienceManagerRef.current.setWebSocket(socketRef.current);
@@ -219,13 +221,32 @@ export const useCommunication = (
             `Cleared signal tracking for recovered connection ${connectionId}`
           );
         }
-        if (isSessionActive) {
+        console.log(`🔍 Checking session state: isSessionActive=${isSessionActive}`);
+        console.log(`🔍 Checking session state REF: isSessionActiveRef.current=${isSessionActiveRef?.current}`);
+        
+        // Use the ref instead of state to avoid race condition
+        const sessionIsActive = isSessionActiveRef?.current || isSessionActive;
+        console.log(`🔍 Final decision: sessionIsActive=${sessionIsActive}`);
+        
+        if (sessionIsActive) {
+          console.log("✅ Session IS active - starting microphone!");
           addLogEntry(
             "session_flow",
             "Session is active. Proceeding to start microphone input via handleStartListening."
           );
-          handleStartListening(false);
+          addLogEntry("debug", `About to call handleStartListening, isSessionActive=${isSessionActive}`);
+          
+          console.log("🎤 About to call handleStartListening...");
+          try {
+            handleStartListening(false);
+            console.log("🎤 handleStartListening call completed successfully");
+            addLogEntry("debug", "handleStartListening call completed");
+          } catch (error) {
+            console.error("🎤 ERROR calling handleStartListening:", error);
+            addLogEntry("error", `handleStartListening call failed: ${error.message}`);
+          }
         } else {
+          console.log("❌ Session NOT active - microphone not started!");
           addLogEntry(
             "ws_warn",
             "WebSocket opened, but session is NOT marked active. Mic not started."

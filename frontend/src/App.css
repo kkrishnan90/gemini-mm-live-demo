@@ -335,11 +335,24 @@ body {
 }
 
 .control-button.mic-button.active {
-  background-color: #c93c37cc;
-  border-color: #f85149;
+  background-color: #dc3545;
+  border-color: #dc3545;
+  color: white;
 }
 .control-button.mic-button.active:hover {
-  background-color: #f85149;
+  background-color: #c82333;
+  border-color: #bd2130;
+}
+
+/* Red styling for unmuted mic (when not muted and session is active) */
+.control-button.mic-button.unmuted {
+  background-color: #dc3545;
+  border-color: #dc3545;
+  color: white;
+}
+.control-button.mic-button.unmuted:hover {
+  background-color: #c82333;
+  border-color: #bd2130;
 }
 
 .control-button.mic-button.muted {
@@ -445,22 +458,12 @@ body {
   height: 100%; /* Start at full height, animation will vary */
   background-color: #58a6ff; /* Blue color for wave */
   margin: 0 1px;
-  animation: wave-animation 1.2s infinite ease-in-out;
   transform-origin: bottom; /* Animation scales from bottom */
+  transition: transform 0.1s ease-out;
+  border-radius: 2px; /* Rounded bars for better appearance */
 }
 
-/* Stagger animation for wave effect */
-.audio-wave span:nth-child(1) { animation-delay: 0s; }
-.audio-wave span:nth-child(2) { animation-delay: 0.2s; }
-.audio-wave span:nth-child(3) { animation-delay: 0.4s; }
-.audio-wave span:nth-child(4) { animation-delay: 0.6s; }
-.audio-wave span:nth-child(5) { animation-delay: 0.8s; }
-
-
-@keyframes wave-animation {
-  0%, 100% { transform: scaleY(0.2); }
-  50% { transform: scaleY(1.0); }
-}
+/* Real-time audio visualization - no need for keyframe animation */
 
 
 /* Ensure global styles don't conflict too much */
