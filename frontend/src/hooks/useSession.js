@@ -237,7 +237,7 @@ export const useSession = () => {
     isSessionActive,
     sendAudioChunkWithBackpressure,
     socketRef,
-    false, // isWebSocketReady will be set by useCommunication
+    true, // Force isWebSocketReady to true to avoid blocking
     isPlayingRef,
     stopSystemAudioPlayback
   );

@@ -222,13 +222,15 @@ export const useCommunication = (
         if (isSessionActive) {
           addLogEntry(
             "session_flow",
-            "Session is active. Proceeding to start microphone input via handleStartListening."
+            "🔌 WebSocket opened and session is active. Calling handleStartListening..."
           );
+          addLogEntry("debug", `🔌 About to call handleStartListening with isSessionActive=${isSessionActive}`);
           handleStartListening(false);
+          addLogEntry("debug", "🔌 handleStartListening call completed");
         } else {
           addLogEntry(
             "ws_warn",
-            "WebSocket opened, but session is NOT marked active. Mic not started."
+            "🔌 WebSocket opened, but session is NOT marked active. Mic not started."
           );
         }
       };
