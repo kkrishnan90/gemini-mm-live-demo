@@ -113,6 +113,7 @@ async def websocket_endpoint():
     current_session_handle = None  # Initialize session handle
     client_ready_for_audio = False  # Track client audio readiness
     initial_audio_buffer = []  # Buffer for initial audio chunks
+    audio_sequence_counter = 0  # UNIFIED TIMING: Reliable sequence counter for audio correlation
     print(f"🐛 DEBUG: Initialized - client_ready_for_audio={client_ready_for_audio}, buffer_size={len(initial_audio_buffer)}")
 
     # Force Hindi language for all transcription
@@ -316,19 +317,20 @@ async def websocket_endpoint():
                                     for buffered_chunk in initial_audio_buffer:
                                         try:
                                             if isinstance(buffered_chunk, dict) and buffered_chunk.get("type") == "buffered_audio":
-                                                # Send binary audio data first
-                                                await websocket.send(buffered_chunk["audio_data"])
-                                                
-                                                # Send metadata separately
+                                                # UNIFIED TIMING: Send metadata BEFORE binary audio for correlation
                                                 metadata_msg = {
                                                     "type": "audio_metadata",
-                                                    **buffered_chunk["metadata"]
+                                                    **buffered_chunk["metadata"],
+                                                    "flushed_by_timeout": True  # Mark as buffered flush
                                                 }
                                                 await websocket.send_json(metadata_msg)
                                                 
+                                                # Send binary audio data immediately after metadata
+                                                await websocket.send(buffered_chunk["audio_data"])
+                                                
                                                 chunk_size = buffered_chunk["metadata"]["size_bytes"]
                                                 flushed_count += 1
-                                                print(f"🐛 DEBUG: Flushed buffered binary chunk #{flushed_count} ({chunk_size} bytes)")
+                                                print(f"🐛 UNIFIED DEBUG: Flushed buffered chunk #{flushed_count} seq={buffered_chunk['metadata']['sequence']} ({chunk_size} bytes) - metadata BEFORE binary")
                                             else:
                                                 # Fallback for old format
                                                 await websocket.send(buffered_chunk)
@@ -480,13 +482,11 @@ async def websocket_endpoint():
                                         samples_per_chunk = chunk_size // 2  # 2 bytes per sample (PCM16)
                                         expected_duration_ms = (samples_per_chunk / 24000) * 1000  # 24kHz sample rate
                                         
-                                        # Generate sequence number for correlation
-                                        sequence_num = getattr(response, 'sequence', current_time * 1000)
+                                        # UNIFIED TIMING: Generate reliable sequence number for correlation
+                                        audio_sequence_counter += 1
+                                        sequence_num = audio_sequence_counter
                                         
-                                        # Send audio as efficient binary data
-                                        await websocket.send(response.data)
-                                        
-                                        # Send metadata separately as JSON message
+                                        # UNIFIED TIMING: Send metadata BEFORE binary audio for proper correlation
                                         audio_metadata = {
                                             "type": "audio_metadata",
                                             "sequence": sequence_num,
@@ -497,16 +497,20 @@ async def websocket_endpoint():
                                         }
                                         
                                         await websocket.send_json(audio_metadata)
+                                        
+                                        # Send audio as efficient binary data immediately after metadata
+                                        await websocket.send(response.data)
                                         print(
-                                            f"🔊 Backend: Sent binary audio chunk ({chunk_size} bytes, {expected_duration_ms:.1f}ms duration) + metadata to frontend")
+                                            f"🔊 UNIFIED Backend: Sent audio seq={sequence_num} ({chunk_size} bytes, {expected_duration_ms:.1f}ms) - metadata BEFORE binary")
                                     else:
                                         # Client not ready, buffer the audio chunk with metadata
                                         chunk_size = len(response.data)
                                         samples_per_chunk = chunk_size // 2
                                         expected_duration_ms = (samples_per_chunk / 24000) * 1000
                                         
-                                        # Generate sequence number for correlation
-                                        sequence_num = getattr(response, 'sequence', current_time * 1000)
+                                        # UNIFIED TIMING: Generate reliable sequence number for correlation
+                                        audio_sequence_counter += 1
+                                        sequence_num = audio_sequence_counter
                                         
                                         # Buffer both audio data and metadata
                                         audio_chunk_data = {
@@ -524,7 +528,7 @@ async def websocket_endpoint():
                                         
                                         initial_audio_buffer.append(audio_chunk_data)
                                         print(
-                                            f"📦 Buffered binary audio chunk ({chunk_size} bytes, {expected_duration_ms:.1f}ms) - client not ready (t+{time_since_connection:.1f}s)")
+                                            f"📦 UNIFIED Buffered audio seq={sequence_num} ({chunk_size} bytes, {expected_duration_ms:.1f}ms) - client not ready (t+{time_since_connection:.1f}s)")
 
                                         # Enhanced buffer pressure management with flow control
                                         buffer_size = len(initial_audio_buffer)

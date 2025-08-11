@@ -49,6 +49,36 @@ const BACKEND_HOST = "localhost:8000";
 const generateUniqueId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
 
+// Unified audio readiness signal sender - ensures single CLIENT_AUDIO_READY per connection
+const sendAudioReadySignal = (playbackContext, socket, addLogEntry, audioReadySignalSentRef, reason = "unified") => {
+  // Check if signal already sent for this connection
+  if (audioReadySignalSentRef.current) {
+    addLogEntry("audio", `⏸️ Audio readiness signal already sent for this connection`);
+    return false;
+  }
+  
+  // Only send if both contexts are ready and socket is open
+  if (!playbackContext || playbackContext.state !== "running") {
+    addLogEntry("audio", `⏸️ Audio readiness check failed: playback context state=${playbackContext?.state || 'null'}`);
+    return false;
+  }
+  
+  if (!socket || socket.readyState !== WebSocket.OPEN) {
+    addLogEntry("audio", `⏸️ Audio readiness check failed: socket state=${socket?.readyState || 'null'}`);
+    return false;
+  }
+  
+  try {
+    socket.send("CLIENT_AUDIO_READY");
+    audioReadySignalSentRef.current = true;  // Mark as sent
+    addLogEntry("audio", `📤 Sent CLIENT_AUDIO_READY signal to backend (${reason}) - UNIFIED SIGNAL`);
+    return true;
+  } catch (error) {
+    addLogEntry("error", `Failed to send CLIENT_AUDIO_READY signal: ${error.message}`);
+    return false;
+  }
+};
+
 const App = () => {
   const [isRecording, setIsRecording] = useState(false); // Is microphone actively sending audio
   const [isSessionActive, setIsSessionActive] = useState(false); // Is the overall session (WS + mic) active
@@ -98,6 +128,7 @@ const App = () => {
   const logsAreaRef = useRef(null);
   const chatAreaRef = useRef(null);
   const glassToGlassLatencyRef = useRef([]);
+  const audioReadySignalSentRef = useRef(false);  // Track if CLIENT_AUDIO_READY has been sent
 
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -481,16 +512,15 @@ const App = () => {
           // Set up enhanced state monitoring for playback context
           monitorAudioContextState(playbackAudioContextRef.current, 'PlaybackAudioContext');
             
-          // Enhanced onstatechange handler to send CLIENT_AUDIO_READY signal
+          // Enhanced onstatechange handler - logs state changes and sends unified signal
           playbackAudioContextRef.current.onstatechange = () => {
             addLogEntry(
               "audio",
               `PlaybackCTX state changed to: ${playbackAudioContextRef.current?.state}`
             );
-            // Send CLIENT_AUDIO_READY signal when context becomes running
-            if (playbackAudioContextRef.current?.state === "running" && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-              socketRef.current.send("CLIENT_AUDIO_READY");
-              addLogEntry("audio", "📤 Sent CLIENT_AUDIO_READY signal to backend (state change to running)");
+            // Send unified audio readiness signal when context becomes running
+            if (playbackAudioContextRef.current?.state === "running") {
+              sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, audioReadySignalSentRef, "context-state-change");
             }
           };
           
@@ -499,10 +529,9 @@ const App = () => {
             `Playback AudioContext CREATED. Initial state: ${playbackAudioContextRef.current.state}, SampleRate: ${playbackAudioContextRef.current.sampleRate}`
           );
           
-          // Send CLIENT_AUDIO_READY signal immediately if already running (rare case)
-          if (playbackAudioContextRef.current.state === "running" && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-            socketRef.current.send("CLIENT_AUDIO_READY");
-            addLogEntry("audio", "📤 Sent CLIENT_AUDIO_READY signal to backend (immediate)");
+          // Send unified audio readiness signal if already running
+          if (playbackAudioContextRef.current.state === "running") {
+            sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, audioReadySignalSentRef, "context-creation-immediate");
           }
         } catch (e) {
           console.error(
@@ -531,10 +560,9 @@ const App = () => {
               `PlaybackCTX Resume attempt finished. State: ${playbackAudioContextRef.current.state}`
             );
             
-            // Send CLIENT_AUDIO_READY signal after successful resume
-            if (playbackAudioContextRef.current.state === "running" && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-              socketRef.current.send("CLIENT_AUDIO_READY");
-              addLogEntry("audio", "📤 Sent CLIENT_AUDIO_READY signal to backend (after resume)");
+            // Send unified audio readiness signal after successful resume
+            if (playbackAudioContextRef.current.state === "running") {
+              sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, audioReadySignalSentRef, "context-resume");
             }
           } catch (e) {
             console.error(`[CTX_PLAYBACK_MGR] FAILED to RESUME PlaybackCTX`, e);
@@ -634,7 +662,7 @@ const App = () => {
       source.connect(gainNode);
       gainNode.connect(audioCtx.destination);
       
-      // Adaptive scheduling using backend metadata when available
+      // UNIFIED SCHEDULING: Primary backend metadata with minimal frontend buffer
       const currentTime = audioCtx.currentTime;
       const audioBufferDuration = audioBuffer.duration;
       
@@ -642,22 +670,12 @@ const App = () => {
       const expectedDurationSeconds = audioChunk.expectedDurationMs ? 
         audioChunk.expectedDurationMs / 1000 : audioBufferDuration;
       
-      // Initialize scheduled time with adaptive buffer for first chunk
+      // Initialize scheduled time with minimal buffer for first chunk
       if (scheduledPlaybackTimeRef.current === 0 || scheduledPlaybackTimeRef.current < currentTime) {
-        // Use adaptive buffer size based on quality metrics
-        const qualityMetrics = audioQualityMetricsRef.current;
-        let adaptiveBuffer = qualityMetrics.adaptiveBufferSize;
-        
-        // Increase buffer if experiencing choppy audio
-        if (qualityMetrics.choppyChunks > qualityMetrics.totalChunks * 0.1) {
-          adaptiveBuffer = Math.min(adaptiveBuffer * 1.2, 0.1); // Max 100ms
-          qualityMetrics.adaptiveBufferSize = adaptiveBuffer;
-          addLogEntry("audio_flow_control", `🔧 Increased adaptive buffer to ${(adaptiveBuffer * 1000).toFixed(1)}ms due to choppy audio`);
-        }
-        
-        // Apply buffer based on chunk characteristics
-        const finalBuffer = audioChunk.wasBuffered ? adaptiveBuffer * 2 : adaptiveBuffer;
-        scheduledPlaybackTimeRef.current = currentTime + finalBuffer;
+        // Fixed minimal buffer of 10ms for seamless playback
+        const minimalBuffer = 0.01;
+        scheduledPlaybackTimeRef.current = currentTime + minimalBuffer;
+        addLogEntry("audio_flow_control", `🎯 Initialized scheduling with ${(minimalBuffer * 1000).toFixed(1)}ms buffer`);
       }
       
       const scheduledStartTime = scheduledPlaybackTimeRef.current;
@@ -666,7 +684,7 @@ const App = () => {
         const actualDuration = audioCtx.currentTime - scheduledStartTime;
         const durationDiff = Math.abs(actualDuration - expectedDurationSeconds);
         
-        // Update quality metrics
+        // SIMPLIFIED quality metrics - no adaptive adjustments that cause timing conflicts
         const qualityMetrics = audioQualityMetricsRef.current;
         qualityMetrics.totalChunks++;
         
@@ -676,27 +694,18 @@ const App = () => {
           qualityMetrics.choppyChunks++;
         }
         
-        // Update running average of duration differences
+        // Update running average of duration differences (for monitoring only)
         const alpha = 0.1; // Exponential smoothing factor
         qualityMetrics.avgDurationDiff = qualityMetrics.avgDurationDiff * (1 - alpha) + durationDiff * alpha;
         
-        // Periodic quality assessment and adjustment
+        // Periodic quality monitoring only (no automatic adjustments)
         const now = Date.now();
-        if (now - qualityMetrics.lastQualityCheck > 5000) { // Every 5 seconds
+        if (now - qualityMetrics.lastQualityCheck > 10000) { // Every 10 seconds
           const choppyRatio = qualityMetrics.choppyChunks / qualityMetrics.totalChunks;
           const qualityScore = Math.max(0, 1 - choppyRatio - qualityMetrics.avgDurationDiff);
           
           addLogEntry("audio_flow_control", 
-            `📊 Audio quality: score=${qualityScore.toFixed(2)}, choppy=${choppyRatio.toFixed(2)}, avg_diff=${(qualityMetrics.avgDurationDiff * 1000).toFixed(1)}ms`);
-          
-          // Adjust adaptive buffer based on quality
-          if (qualityScore < 0.8 && qualityMetrics.adaptiveBufferSize < 0.08) {
-            qualityMetrics.adaptiveBufferSize *= 1.1;
-            addLogEntry("audio_flow_control", `🔧 Quality adjustment: increased buffer to ${(qualityMetrics.adaptiveBufferSize * 1000).toFixed(1)}ms`);
-          } else if (qualityScore > 0.95 && qualityMetrics.adaptiveBufferSize > 0.01) {
-            qualityMetrics.adaptiveBufferSize *= 0.95;
-            addLogEntry("audio_flow_control", `⚡ Quality adjustment: reduced buffer to ${(qualityMetrics.adaptiveBufferSize * 1000).toFixed(1)}ms`);
-          }
+            `📊 UNIFIED Audio quality: score=${qualityScore.toFixed(2)}, choppy=${choppyRatio.toFixed(2)}, avg_diff=${(qualityMetrics.avgDurationDiff * 1000).toFixed(1)}ms`);
           
           qualityMetrics.lastQualityCheck = now;
         }
@@ -720,16 +729,16 @@ const App = () => {
       currentAudioSourceRef.current = source;
       
       const scheduleInfo = audioChunk.expectedDurationMs ? 
-        `enhanced (backend: ${audioChunk.expectedDurationMs}ms)` : 
-        `calculated (${(audioBufferDuration * 1000).toFixed(1)}ms)`;
+        `backend: ${audioChunk.expectedDurationMs}ms` : 
+        `calculated: ${(audioBufferDuration * 1000).toFixed(1)}ms`;
       
       addLogEntry("gemini_audio", 
-        `Starting adaptive playback: scheduled=${scheduledStartTime.toFixed(3)}s, duration=${scheduleInfo}, seq=${audioChunk.sequence}`);
+        `Starting UNIFIED playback: scheduled=${scheduledStartTime.toFixed(3)}s, duration=${scheduleInfo}, seq=${audioChunk.sequence}`);
       
       // Start audio at precisely scheduled time for seamless playback
       source.start(scheduledStartTime);
       
-      // Update scheduled time for next chunk using adaptive duration
+      // Update scheduled time for next chunk using backend duration (primary) or calculated fallback
       scheduledPlaybackTimeRef.current = scheduledStartTime + expectedDurationSeconds;
       
     } catch (error) {
@@ -1376,10 +1385,12 @@ const App = () => {
         setWebSocketStatus("Open");
         addLogEntry("ws", `WebSocket Connected (Lang: ${language}).`);
         
-        // Send CLIENT_AUDIO_READY signal if AudioContext is already running
+        // Reset audio readiness signal tracking for new connection
+        audioReadySignalSentRef.current = false;
+        
+        // Check if audio chain is ready and send unified signal
         if (playbackAudioContextRef.current && playbackAudioContextRef.current.state === "running") {
-          socketRef.current.send("CLIENT_AUDIO_READY");
-          addLogEntry("audio", "📤 Sent CLIENT_AUDIO_READY signal to backend (WebSocket onopen)");
+          sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, audioReadySignalSentRef, "websocket-onopen");
         }
         
         // Connect WebSocket to network resilience manager
@@ -1469,19 +1480,9 @@ const App = () => {
               addLogEntry("audio_flow_control", 
                 `🔥 Buffer pressure ${level}: ${bufferSize}/${maxSize} chunks, action: ${action}`);
               
-              // Implement adaptive response to buffer pressure
-              if (level === "high" && action === "increase_playback_speed") {
-                // Reduce scheduling buffer to speed up playback
-                const currentScheduled = scheduledPlaybackTimeRef.current;
-                getPlaybackAudioContext().then(ctx => {
-                  if (ctx && currentScheduled > ctx.currentTime) {
-                    const reductionFactor = 0.8; // Reduce by 20%
-                    scheduledPlaybackTimeRef.current = ctx.currentTime + (currentScheduled - ctx.currentTime) * reductionFactor;
-                    addLogEntry("audio_flow_control", `⚡ Reduced scheduling buffer to speed up playback`);
-                  }
-                }).catch(err => {
-                  addLogEntry("error", `Failed to adjust scheduling for buffer pressure: ${err.message}`);
-                });
+              // UNIFIED: Log buffer pressure but don't adjust scheduling to avoid conflicts
+              if (level === "high") {
+                addLogEntry("audio_flow_control", `⚠️ Buffer pressure detected - backend will handle optimization`);
               }
             } else if (receivedData.type === "audio_truncation") {
               // Handle audio truncation warnings
