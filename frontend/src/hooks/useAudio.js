@@ -538,8 +538,6 @@ export const useAudio = (
 
   const handleStartListening = useCallback(
     async (isResuming = false) => {
-      addLogEntry("debug", `🎙️ handleStartListening called - isResuming: ${isResuming}, isSessionActive: ${isSessionActive}, isRecording: ${isRecordingRef.current}`);
-      
       if (!isSessionActive) {
         addLogEntry("warning", "Start listening called but session not active.");
         return;
@@ -548,8 +546,6 @@ export const useAudio = (
         addLogEntry("info", "Already listening.");
         return;
       }
-      
-      addLogEntry("debug", "🎙️ Starting microphone initialization...");
       try {
         if (!isResuming) {
           if (!audioProcessorRef.current) {
@@ -575,10 +571,9 @@ export const useAudio = (
           await audioProcessorRef.current.unpause();
           addLogEntry("mic", "Microphone listening resumed.");
         }
-        addLogEntry("debug", "🎙️ Setting states: isRecording=true, isMuted=false");
         setIsRecording(true);
         setIsMuted(false); // Auto-unmute when recording starts successfully
-        addLogEntry("success", "🎙️ ✅ Microphone started and automatically unmuted!");
+        addLogEntry("mic", "Microphone started and automatically unmuted.");
         if (networkResilienceManagerRef.current) {
           networkResilienceManagerRef.current.notifyMicActive(true);
         }
