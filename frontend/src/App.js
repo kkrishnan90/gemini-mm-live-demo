@@ -29,6 +29,7 @@ const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_BASE = 100;
 const MAX_AUDIO_CONTEXT_RECOVERY_ATTEMPTS = 5;
 const AUDIO_CONTEXT_RECOVERY_DELAY = 1000;
+const AUDIO_RECOVERY_DELAY_MS = 10; // Delay for audio queue recovery operations
 const LATENCY_TARGET_MS = 20; // Target latency in milliseconds
 
 const LANGUAGES = [
@@ -49,6 +50,34 @@ const BACKEND_HOST = "localhost:8000";
 const generateUniqueId = () =>
   `${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 7)}`;
 
+// Validate audio system health and recovery capability
+const validateAudioSystemRecovery = (addLogEntry) => {
+  const issues = [];
+  
+  // Check WebRTC support
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    issues.push("WebRTC getUserMedia not supported");
+  }
+  
+  // Check AudioContext support
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    issues.push("AudioContext not supported");
+  }
+  
+  // Check WebSocket support
+  if (!window.WebSocket) {
+    issues.push("WebSocket not supported");
+  }
+  
+  if (issues.length > 0) {
+    addLogEntry("error", `Audio system validation failed: ${issues.join(", ")}`);
+    return false;
+  }
+  
+  addLogEntry("audio", "🔍 Audio system recovery validation passed");
+  return true;
+};
+
 // Unified audio readiness signal sender - ensures single CLIENT_AUDIO_READY per connection
 const sendAudioReadySignal = (playbackContext, socket, addLogEntry, connectionSignalTracker, reason = "unified") => {
   // Get current connection ID
@@ -56,8 +85,14 @@ const sendAudioReadySignal = (playbackContext, socket, addLogEntry, connectionSi
   
   // Check if signal already sent for this specific connection
   if (connectionId && connectionSignalTracker.current.has(connectionId)) {
-    addLogEntry("audio", `⏸️ Audio readiness signal already sent for connection ${connectionId}`);
-    return false;
+    // CRITICAL FIX 1: Allow retry after connection errors/recovery
+    if (reason.includes("recovery") || reason.includes("retry")) {
+      connectionSignalTracker.current.delete(connectionId);
+      addLogEntry("audio", `🔄 Cleared signal tracking for connection ${connectionId} - allowing retry`);
+    } else {
+      addLogEntry("audio", `⏸️ Audio readiness signal already sent for connection ${connectionId}`);
+      return false;
+    }
   }
   
   // Only send if both contexts are ready and socket is open
@@ -83,6 +118,12 @@ const sendAudioReadySignal = (playbackContext, socket, addLogEntry, connectionSi
     return true;
   } catch (error) {
     addLogEntry("error", `Failed to send CLIENT_AUDIO_READY signal: ${error.message}`);
+    
+    // CRITICAL FIX 1: Clear signal tracking on send error to allow recovery
+    if (connectionId && connectionSignalTracker.current.has(connectionId)) {
+      connectionSignalTracker.current.delete(connectionId);
+      addLogEntry("audio", `🔄 Cleared signal tracking for connection ${connectionId} due to send error - allowing recovery`);
+    }
     return false;
   }
 };
@@ -168,6 +209,11 @@ const App = () => {
   useEffect(() => {
     const initializeAudioSystem = async () => {
       try {
+        // Validate audio system recovery capability
+        if (!validateAudioSystemRecovery(addLogEntry)) {
+          addLogEntry("error", "Audio system validation failed - some features may not work");
+        }
+        
         // Initialize audio buffer manager
         audioBufferManagerRef.current = new AudioBufferManager({
           inputSampleRate: INPUT_SAMPLE_RATE,
@@ -678,13 +724,25 @@ const App = () => {
       const expectedDurationSeconds = audioChunk.expectedDurationMs ? 
         audioChunk.expectedDurationMs / 1000 : null;
       
-      // Fail gracefully if backend timing metadata is missing
+      // CRITICAL FIX 2: Proper cleanup before continuing when metadata is missing
       if (!expectedDurationSeconds) {
         addLogEntry("error", `Missing backend timing metadata for chunk seq=${audioChunk.sequence} - skipping chunk`);
         addLogEntry("audio_flow_control", "⚠️ Audio chunk skipped due to missing timing metadata - continuing with next chunk");
-        // Continue processing next chunks rather than breaking the entire flow
-        if (!isPlayingRef.current && audioQueueRef.current.length > 0) {
-          setTimeout(() => playNextGeminiChunk(), 10);
+        
+        // CRITICAL: Proper cleanup before continuing
+        isPlayingRef.current = false;
+        
+        if (audioProcessorRef.current) {
+          audioProcessorRef.current.setSystemPlaying(false);
+        }
+        
+        if (currentAudioSourceRef.current) {
+          currentAudioSourceRef.current = null;
+        }
+        
+        // Continue with next chunk after proper cleanup
+        if (audioQueueRef.current.length > 0) {
+          setTimeout(() => playNextGeminiChunk(), AUDIO_RECOVERY_DELAY_MS);
         }
         return;
       }
@@ -1407,6 +1465,12 @@ const App = () => {
         // Generate unique connection ID for this WebSocket connection
         const connectionId = `ws-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
         socketRef.current._connectionId = connectionId;
+        
+        // CRITICAL FIX 1: Clear any stale signal tracking for connection recovery
+        if (connectionId && connectionSignalTracker.current.has(connectionId)) {
+          connectionSignalTracker.current.delete(connectionId);
+          addLogEntry("audio", `🔄 Cleared stale signal tracking for recovered connection ${connectionId}`);
+        }
         
         // Check if audio chain is ready and send unified signal
         if (playbackAudioContextRef.current && playbackAudioContextRef.current.state === "running") {
