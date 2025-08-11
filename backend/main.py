@@ -109,12 +109,15 @@ app = cors(app, allow_origin="*")
 @app.websocket("/listen")
 async def websocket_endpoint():
     connection_start_time = asyncio.get_event_loop().time()  # Track connection start
-    print(f"🌐 🐛 DEBUG: NEW WebSocket connection accepted at {connection_start_time}")
+    print(
+        f"🌐 🐛 DEBUG: NEW WebSocket connection accepted at {connection_start_time}")
     current_session_handle = None  # Initialize session handle
     client_ready_for_audio = False  # Track client audio readiness
     initial_audio_buffer = []  # Buffer for initial audio chunks
-    audio_sequence_counter = 0  # UNIFIED TIMING: Reliable sequence counter for audio correlation
-    print(f"🐛 DEBUG: Initialized - client_ready_for_audio={client_ready_for_audio}, buffer_size={len(initial_audio_buffer)}")
+    # UNIFIED TIMING: Reliable sequence counter for audio correlation
+    audio_sequence_counter = 0
+    print(
+        f"🐛 DEBUG: Initialized - client_ready_for_audio={client_ready_for_audio}, buffer_size={len(initial_audio_buffer)}")
 
     # Force Hindi language for all transcription
     language_code_to_use = "en-US"
@@ -311,7 +314,8 @@ async def websocket_endpoint():
                                     client_ready_for_audio = True
                                     print(
                                         f"🔊 🐛 DEBUG: Client audio ready signal received! Buffered chunks: {len(initial_audio_buffer)}")
-                                    print(f"🐛 DEBUG: Connection time: {asyncio.get_event_loop().time() - connection_start_time:.2f}s")
+                                    print(
+                                        f"🐛 DEBUG: Connection time: {asyncio.get_event_loop().time() - connection_start_time:.2f}s")
                                     # Flush any buffered audio chunks
                                     flushed_count = 0
                                     for buffered_chunk in initial_audio_buffer:
@@ -324,23 +328,26 @@ async def websocket_endpoint():
                                                     "flushed_by_timeout": True  # Mark as buffered flush
                                                 }
                                                 await websocket.send_json(metadata_msg)
-                                                
+
                                                 # Send binary audio data immediately after metadata
                                                 await websocket.send(buffered_chunk["audio_data"])
-                                                
+
                                                 chunk_size = buffered_chunk["metadata"]["size_bytes"]
                                                 flushed_count += 1
-                                                print(f"🐛 UNIFIED DEBUG: Flushed buffered chunk #{flushed_count} seq={buffered_chunk['metadata']['sequence']} ({chunk_size} bytes) - metadata BEFORE binary")
+                                                print(
+                                                    f"🐛 UNIFIED DEBUG: Flushed buffered chunk #{flushed_count} seq={buffered_chunk['metadata']['sequence']} ({chunk_size} bytes) - metadata BEFORE binary")
                                             else:
                                                 # Fallback for old format
                                                 await websocket.send(buffered_chunk)
                                                 flushed_count += 1
-                                                print(f"🐛 DEBUG: Flushed legacy chunk #{flushed_count} ({len(buffered_chunk)} bytes)")
+                                                print(
+                                                    f"🐛 DEBUG: Flushed legacy chunk #{flushed_count} ({len(buffered_chunk)} bytes)")
                                         except Exception as send_exc:
                                             print(
                                                 f"🐛 DEBUG: Error sending buffered audio chunk #{flushed_count}: {send_exc}")
                                     initial_audio_buffer.clear()
-                                    print(f"🐛 DEBUG: Flushed {flushed_count} buffered audio chunks, buffer cleared")
+                                    print(
+                                        f"🐛 DEBUG: Flushed {flushed_count} buffered audio chunks, buffer cleared")
                                     continue
 
                                 prompt_for_gemini = message_text
@@ -359,8 +366,10 @@ async def websocket_endpoint():
                             elif isinstance(client_data, bytes):
                                 audio_chunk = client_data
                                 if audio_chunk:
-                                    print(f"🎤 Backend: Received audio from frontend: {len(audio_chunk)} bytes")
-                                    print(f"📤 Backend: Sending audio to Gemini Live API: {len(audio_chunk)} bytes")
+                                    print(
+                                        f"🎤 Backend: Received audio from frontend: {len(audio_chunk)} bytes")
+                                    print(
+                                        f"📤 Backend: Sending audio to Gemini Live API: {len(audio_chunk)} bytes")
                                     await session.send_realtime_input(
                                         audio=types.Blob(
                                             mime_type=f"audio/pcm;rate={INPUT_SAMPLE_RATE}",
@@ -432,7 +441,8 @@ async def websocket_endpoint():
                                     # print(f"Quart Backend: Updated session handle from direct response.session_handle: {current_session_handle}")
 
                             if response.data is not None:
-                                print(f"📥 Backend: Received audio from Gemini Live API: {len(response.data)} bytes")
+                                print(
+                                    f"📥 Backend: Received audio from Gemini Live API: {len(response.data)} bytes")
                                 try:
                                     current_time = asyncio.get_event_loop().time()
                                     time_since_connection = current_time - connection_start_time
@@ -441,7 +451,8 @@ async def websocket_endpoint():
                                     if not client_ready_for_audio and time_since_connection > 3.0:
                                         print(
                                             f"⏰ 🐛 DEBUG: Client readiness TIMEOUT after {time_since_connection:.2f}s - auto-flushing {len(initial_audio_buffer)} buffered chunks")
-                                        print(f"🐛 DEBUG: This indicates CLIENT_AUDIO_READY signal was NOT received - investigating frontend")
+                                        print(
+                                            f"🐛 DEBUG: This indicates CLIENT_AUDIO_READY signal was NOT received - investigating frontend")
                                         client_ready_for_audio = True
                                         # Flush buffered audio with binary format
                                         timeout_flushed_count = 0
@@ -456,36 +467,41 @@ async def websocket_endpoint():
                                                         **metadata
                                                     }
                                                     await websocket.send_json(metadata_msg)
-                                                    
+
                                                     # Send binary audio data immediately after metadata
                                                     await websocket.send(buffered_chunk["audio_data"])
-                                                    
+
                                                     chunk_size = metadata["size_bytes"]
                                                     duration = metadata["expected_duration_ms"]
                                                     timeout_flushed_count += 1
-                                                    print(f"🐛 DEBUG: Timeout-flushed binary chunk #{timeout_flushed_count} ({chunk_size} bytes, {duration:.1f}ms)")
+                                                    print(
+                                                        f"🐛 DEBUG: Timeout-flushed binary chunk #{timeout_flushed_count} ({chunk_size} bytes, {duration:.1f}ms)")
                                                 else:
                                                     # Fallback for old format
                                                     await websocket.send(buffered_chunk)
                                                     timeout_flushed_count += 1
-                                                    print(f"🐛 DEBUG: Timeout-flushed legacy chunk #{timeout_flushed_count} ({len(buffered_chunk)} bytes)")
+                                                    print(
+                                                        f"🐛 DEBUG: Timeout-flushed legacy chunk #{timeout_flushed_count} ({len(buffered_chunk)} bytes)")
                                             except Exception as send_exc:
                                                 print(
                                                     f"🐛 DEBUG: Error sending timeout-flushed audio chunk #{timeout_flushed_count}: {send_exc}")
                                         initial_audio_buffer.clear()
-                                        print(f"🐛 DEBUG: Timeout flushed {timeout_flushed_count} binary chunks - investigating truncation cause")
+                                        print(
+                                            f"🐛 DEBUG: Timeout flushed {timeout_flushed_count} binary chunks - investigating truncation cause")
 
                                     if client_ready_for_audio:
                                         # Client is ready, send audio as binary with separate metadata
                                         chunk_size = len(response.data)
                                         # Calculate expected playback duration (24kHz PCM16, mono)
-                                        samples_per_chunk = chunk_size // 2  # 2 bytes per sample (PCM16)
-                                        expected_duration_ms = (samples_per_chunk / 24000) * 1000  # 24kHz sample rate
-                                        
+                                        # 2 bytes per sample (PCM16)
+                                        samples_per_chunk = chunk_size // 2
+                                        expected_duration_ms = (
+                                            samples_per_chunk / 24000) * 1000  # 24kHz sample rate
+
                                         # UNIFIED TIMING: Generate reliable sequence number for correlation
                                         audio_sequence_counter += 1
                                         sequence_num = audio_sequence_counter
-                                        
+
                                         # UNIFIED TIMING: Send metadata BEFORE binary audio for proper correlation
                                         audio_metadata = {
                                             "type": "audio_metadata",
@@ -495,9 +511,9 @@ async def websocket_endpoint():
                                             "sample_rate": 24000,
                                             "timestamp": current_time
                                         }
-                                        
+
                                         await websocket.send_json(audio_metadata)
-                                        
+
                                         # Send audio as efficient binary data immediately after metadata
                                         await websocket.send(response.data)
                                         print(
@@ -506,12 +522,13 @@ async def websocket_endpoint():
                                         # Client not ready, buffer the audio chunk with metadata
                                         chunk_size = len(response.data)
                                         samples_per_chunk = chunk_size // 2
-                                        expected_duration_ms = (samples_per_chunk / 24000) * 1000
-                                        
+                                        expected_duration_ms = (
+                                            samples_per_chunk / 24000) * 1000
+
                                         # UNIFIED TIMING: Generate reliable sequence number for correlation
                                         audio_sequence_counter += 1
                                         sequence_num = audio_sequence_counter
-                                        
+
                                         # Buffer both audio data and metadata
                                         audio_chunk_data = {
                                             "type": "buffered_audio",
@@ -525,15 +542,16 @@ async def websocket_endpoint():
                                                 "buffered": True
                                             }
                                         }
-                                        
-                                        initial_audio_buffer.append(audio_chunk_data)
+
+                                        initial_audio_buffer.append(
+                                            audio_chunk_data)
                                         print(
                                             f"📦 UNIFIED Buffered audio seq={sequence_num} ({chunk_size} bytes, {expected_duration_ms:.1f}ms) - client not ready (t+{time_since_connection:.1f}s)")
 
                                         # Enhanced buffer pressure management with flow control
                                         buffer_size = len(initial_audio_buffer)
                                         max_buffer_size = 500
-                                        
+
                                         # Send buffer pressure warnings to frontend
                                         if buffer_size > max_buffer_size * 0.8:  # 80% threshold
                                             pressure_warning = {
@@ -545,17 +563,21 @@ async def websocket_endpoint():
                                             }
                                             try:
                                                 await websocket.send_json(pressure_warning)
-                                                print(f"⚠️ Buffer pressure warning sent: {pressure_warning['level']} ({buffer_size}/{max_buffer_size})")
+                                                print(
+                                                    f"⚠️ Buffer pressure warning sent: {pressure_warning['level']} ({buffer_size}/{max_buffer_size})")
                                             except Exception as e:
-                                                print(f"Failed to send buffer pressure warning: {e}")
-                                        
+                                                print(
+                                                    f"Failed to send buffer pressure warning: {e}")
+
                                         # Remove oldest chunks when buffer is full
                                         if buffer_size > max_buffer_size:
                                             removed_chunks = []
                                             while len(initial_audio_buffer) > max_buffer_size:
-                                                removed_chunk = initial_audio_buffer.pop(0)
-                                                removed_chunks.append(removed_chunk)
-                                            
+                                                removed_chunk = initial_audio_buffer.pop(
+                                                    0)
+                                                removed_chunks.append(
+                                                    removed_chunk)
+
                                             # Send truncation warning to frontend
                                             truncation_warning = {
                                                 "type": "audio_truncation",
@@ -565,9 +587,11 @@ async def websocket_endpoint():
                                             }
                                             try:
                                                 await websocket.send_json(truncation_warning)
-                                                print(f"🗑️ Buffer overflow: removed {len(removed_chunks)} chunks, sent truncation warning")
+                                                print(
+                                                    f"🗑️ Buffer overflow: removed {len(removed_chunks)} chunks, sent truncation warning")
                                             except Exception as e:
-                                                print(f"Failed to send truncation warning: {e}")
+                                                print(
+                                                    f"Failed to send truncation warning: {e}")
 
                                 except Exception as send_exc:
                                     print(

@@ -23,7 +23,7 @@ const OUTPUT_SAMPLE_RATE = 24000;
 const MIC_BUFFER_SIZE = BrowserCompatibility.getOptimalBufferSize();
 const ENHANCED_AUDIO_WORKLET_URL = '/enhanced-audio-processor.js';
 const FALLBACK_AUDIO_WORKLET_URL = '/audio-processor.js';
-const MAX_AUDIO_QUEUE_SIZE = 100;  // Increased from 50 to reduce audio dropouts for longer sentences
+const MAX_AUDIO_QUEUE_SIZE = 50;
 const WEBSOCKET_SEND_BUFFER_LIMIT = 65536;
 const MAX_RETRY_ATTEMPTS = 3;
 const RETRY_DELAY_BASE = 100;
@@ -268,7 +268,6 @@ const App = () => {
   const audioWorkletSupported = useRef(null);
   const isPlayingRef = useRef(false);
   const currentAudioSourceRef = useRef(null);
-  const scheduledPlaybackTimeRef = useRef(0);  // Track scheduled playback time for seamless audio
   const audioQualityMetricsRef = useRef({
     totalChunks: 0,
     choppyChunks: 0,
@@ -679,6 +678,11 @@ const App = () => {
             reinitializeAudioContext();
           }, 100);
         }
+        // CRITICAL: If playback context closes during audio playback, defer recovery
+        if (contextName === 'PlaybackAudioContext' && isPlayingRef.current) {
+          addLogEntry("warning", "⚠️ Playback context closed during audio - deferring recovery until audio completes");
+          // Don't reinitialize immediately - let current audio finish
+        }
       } else if (state === 'running') {
         addLogEntry("success", `${contextName} successfully running`);
         audioContextRecoveryAttempts.current = 0; // Reset recovery attempts on success
@@ -778,18 +782,7 @@ const App = () => {
     if (isPlayingRef.current || audioQueueRef.current.length === 0) return;
     isPlayingRef.current = true;
     
-    // Notify audio processor that system audio is now playing
-    if (audioProcessorRef.current) {
-      audioProcessorRef.current.setSystemPlaying(true);
-    }
-    
-    const audioChunk = audioQueueRef.current.shift();
-    const arrayBuffer = audioChunk.data || audioChunk; // Handle both old and new formats
-    
-    // Log sequence info for debugging
-    if (audioChunk.sequence !== undefined) {
-      addLogEntry("audio_sequence", `Playing audio chunk sequence ${audioChunk.sequence}, queue length: ${audioQueueRef.current.length}`);
-    }
+    const arrayBuffer = audioQueueRef.current.shift();
     const audioCtx = await getPlaybackAudioContext(
       "playNextGeminiChunk_SystemAction"
     );
@@ -799,11 +792,6 @@ const App = () => {
         `Playback FAIL: Audio system not ready (${audioCtx?.state})`
       );
       isPlayingRef.current = false;
-      
-      // Notify audio processor that system audio has stopped
-      if (audioProcessorRef.current) {
-        audioProcessorRef.current.setSystemPlaying(false);
-      }
       return;
     }
     try {
@@ -817,11 +805,6 @@ const App = () => {
           "Received empty or invalid audio chunk. Skipping."
         );
         isPlayingRef.current = false;
-        
-        // Notify audio processor that system audio has stopped
-        if (audioProcessorRef.current) {
-          audioProcessorRef.current.setSystemPlaying(false);
-        }
         if (audioQueueRef.current.length > 0) playNextGeminiChunk();
         return;
       }
@@ -835,11 +818,6 @@ const App = () => {
           "Received empty audio chunk (after conversion). Skipping."
         );
         isPlayingRef.current = false;
-        
-        // Notify audio processor that system audio has stopped
-        if (audioProcessorRef.current) {
-          audioProcessorRef.current.setSystemPlaying(false);
-        }
         if (audioQueueRef.current.length > 0) playNextGeminiChunk();
         return;
       }
@@ -856,73 +834,9 @@ const App = () => {
       source.connect(gainNode);
       gainNode.connect(audioCtx.destination);
       
-      // UNIFIED SCHEDULING: Primary backend metadata with minimal frontend buffer
-      const currentTime = audioCtx.currentTime;
-      const audioBufferDuration = audioBuffer.duration;
-      
-      // SOLUTION 1: Use backend metadata with fallback calculation
-      let expectedDurationSeconds;
-      
-      if (audioChunk.expectedDurationMs) {
-        // PRIMARY: Use backend metadata timing
-        expectedDurationSeconds = audioChunk.expectedDurationMs / 1000;
-        addLogEntry("audio_timing", `✅ Using backend timing: ${audioChunk.expectedDurationMs}ms (backend_seq=${audioChunk.sequence})`);
-      } else {
-        // FALLBACK: Calculate duration from audio buffer when metadata is missing
-        expectedDurationSeconds = audioBufferDuration;
-        addLogEntry("audio_timing", `⚠️ Using calculated timing: ${(expectedDurationSeconds * 1000).toFixed(1)}ms (no backend metadata, seq=${audioChunk.sequence})`);
-      }
-      
-      // Initialize scheduled time with minimal buffer for first chunk
-      if (scheduledPlaybackTimeRef.current === 0 || scheduledPlaybackTimeRef.current < currentTime) {
-        // Fixed minimal buffer of 10ms for seamless playback
-        const minimalBuffer = 0.01;
-        scheduledPlaybackTimeRef.current = currentTime + minimalBuffer;
-        addLogEntry("audio_flow_control", `🎯 Initialized scheduling with ${(minimalBuffer * 1000).toFixed(1)}ms buffer`);
-      }
-      
-      const scheduledStartTime = scheduledPlaybackTimeRef.current;
-      
       source.onended = () => {
-        const actualDuration = audioCtx.currentTime - scheduledStartTime;
-        const durationDiff = Math.abs(actualDuration - expectedDurationSeconds);
-        
-        // SIMPLIFIED quality metrics - no adaptive adjustments that cause timing conflicts
-        const qualityMetrics = audioQualityMetricsRef.current;
-        qualityMetrics.totalChunks++;
-        
-        // Consider chunk "choppy" if duration difference is significant (>20ms or >10% variance)
-        const isChoppy = durationDiff > 0.02 || durationDiff > expectedDurationSeconds * 0.1;
-        if (isChoppy) {
-          qualityMetrics.choppyChunks++;
-        }
-        
-        // Update running average of duration differences (for monitoring only)
-        const alpha = 0.1; // Exponential smoothing factor
-        qualityMetrics.avgDurationDiff = qualityMetrics.avgDurationDiff * (1 - alpha) + durationDiff * alpha;
-        
-        // Periodic quality monitoring only (no automatic adjustments)
-        const now = Date.now();
-        if (now - qualityMetrics.lastQualityCheck > 10000) { // Every 10 seconds
-          const choppyRatio = qualityMetrics.choppyChunks / qualityMetrics.totalChunks;
-          const qualityScore = Math.max(0, 1 - choppyRatio - qualityMetrics.avgDurationDiff);
-          
-          addLogEntry("audio_flow_control", 
-            `📊 UNIFIED Audio quality: score=${qualityScore.toFixed(2)}, choppy=${choppyRatio.toFixed(2)}, avg_diff=${(qualityMetrics.avgDurationDiff * 1000).toFixed(1)}ms`);
-          
-          qualityMetrics.lastQualityCheck = now;
-        }
-        
-        addLogEntry("gemini_audio", 
-          `Enhanced audio finished: expected=${expectedDurationSeconds.toFixed(3)}s, actual=${actualDuration.toFixed(3)}s, diff=${durationDiff.toFixed(3)}s${isChoppy ? ' [CHOPPY]' : ''}`);
-        
+        addLogEntry("gemini_audio", "Audio chunk finished playing.");
         isPlayingRef.current = false;
-        
-        // Notify audio processor that system audio has stopped
-        if (audioProcessorRef.current) {
-          audioProcessorRef.current.setSystemPlaying(false);
-        }
-        
         currentAudioSourceRef.current = null;
         if (audioQueueRef.current.length > 0) playNextGeminiChunk();
         source.disconnect();
@@ -930,32 +844,13 @@ const App = () => {
       };
       
       currentAudioSourceRef.current = source;
-      
-      const scheduleInfo = audioChunk.expectedDurationMs ? 
-        `backend: ${audioChunk.expectedDurationMs}ms` : 
-        `calculated: ${(audioBufferDuration * 1000).toFixed(1)}ms`;
-      
-      addLogEntry("gemini_audio", 
-        `Starting UNIFIED playback: scheduled=${scheduledStartTime.toFixed(3)}s, duration=${scheduleInfo}, seq=${audioChunk.sequence}`);
-      
-      // Start audio at precisely scheduled time for seamless playback
-      source.start(scheduledStartTime);
-      
-      // Update scheduled time for next chunk using backend duration (primary) or calculated fallback
-      scheduledPlaybackTimeRef.current = scheduledStartTime + expectedDurationSeconds;
+      addLogEntry("gemini_audio", "Starting playback of Gemini audio chunk...");
+      source.start();
       
     } catch (error) {
       currentAudioSourceRef.current = null;
       addLogEntry("error", `Playback Error: ${error.message}`);
       isPlayingRef.current = false;
-      
-      // Reset scheduled time on error
-      scheduledPlaybackTimeRef.current = 0;
-      
-      // Notify audio processor that system audio has stopped
-      if (audioProcessorRef.current) {
-        audioProcessorRef.current.setSystemPlaying(false);
-      }
       if (audioQueueRef.current.length > 0) playNextGeminiChunk();
     }
   }, [getPlaybackAudioContext, addLogEntry]);
@@ -980,19 +875,13 @@ const App = () => {
     audioQueueRef.current = [];
     isPlayingRef.current = false;
     
-    // Reset scheduled playback time for seamless restart after barge-in
-    scheduledPlaybackTimeRef.current = 0;
+    // Simple restart - no scheduling to reset
     
     if (clearedCount > 0) {
       addLogEntry("audio_sequence", `Cleared ${clearedCount} audio chunks from queue due to barge-in`);
     }
     
-    // Notify audio processor that system audio has stopped (barge-in)
-    if (audioProcessorRef.current) {
-      audioProcessorRef.current.setSystemPlaying(false);
-    }
-    
-    addLogEntry("gemini_audio", "Gemini audio queue cleared due to barge-in, scheduling reset.");
+    addLogEntry("gemini_audio", "Gemini audio queue cleared due to barge-in.");
   }, [addLogEntry]);
 
   // WebSocket backpressure handling (moved up to fix dependency order)
@@ -1726,10 +1615,6 @@ const App = () => {
               
               addLogEntry("error", 
                 `🚨 Audio truncated: ${chunksRemoved} chunks removed due to ${reason}`);
-              
-              // Reset scheduling to resync after truncation
-              scheduledPlaybackTimeRef.current = 0;
-              addLogEntry("audio_flow_control", "🔄 Reset audio scheduling due to truncation");
             } else {
               addLogEntry(
                 "ws_json_unhandled",
@@ -1747,58 +1632,8 @@ const App = () => {
         } else if (event.data instanceof ArrayBuffer) {
           addLogEntry("audio_receive", `📥 Received binary audio from backend: ${event.data.byteLength} bytes`);
           
-          // SOLUTION 1: Find matching metadata using backend sequence numbers and correlation
-          const currentTime = Date.now();
-          let matchingMetadata = null;
-          let backendSequence = null;
-          
-          // PRIMARY CORRELATION: Find by size and timing (backend sequence numbers are authoritative)
-          for (const [sequence, metadata] of pendingMetadataRef.current.entries()) {
-            const metadataAge = currentTime - (metadata.timestamp * 1000); // Backend timestamp is in seconds
-            if (metadataAge >= 0 && metadataAge <= 500 && metadata.size_bytes === event.data.byteLength) {
-              matchingMetadata = metadata;
-              backendSequence = sequence; // Use backend sequence as authoritative
-              pendingMetadataRef.current.delete(sequence);
-              addLogEntry("audio_correlation", `✅ Found metadata correlation: backend_seq=${sequence}, size=${metadata.size_bytes}, age=${metadataAge}ms`);
-              break;
-            }
-          }
-          
-          // FALLBACK CORRELATION: Find closest by size if timing doesn't match
-          if (!matchingMetadata) {
-            for (const [sequence, metadata] of pendingMetadataRef.current.entries()) {
-              if (metadata.size_bytes === event.data.byteLength) {
-                matchingMetadata = metadata;
-                backendSequence = sequence;
-                pendingMetadataRef.current.delete(sequence);
-                addLogEntry("audio_correlation", `⚠️ Fallback correlation by size: backend_seq=${sequence}, size=${metadata.size_bytes}`);
-                break;
-              }
-            }
-          }
-          
-          // Create audio chunk using BACKEND sequence (no frontend sequence assignment)
-          const audioChunk = {
-            data: event.data,
-            sequence: backendSequence, // Use backend sequence directly (can be null)
-            timestamp: currentTime,
-            size: event.data.byteLength,
-            // Enhanced metadata from backend (if available)
-            expectedDurationMs: matchingMetadata?.expected_duration_ms,
-            sampleRate: matchingMetadata?.sample_rate || 24000,
-            backendTimestamp: matchingMetadata?.timestamp,
-            wasBuffered: matchingMetadata?.buffered || false,
-            flushedByTimeout: matchingMetadata?.flushed_by_timeout || false,
-            needsMetadata: !matchingMetadata // Flag for chunks without metadata
-          };
-          
-          const metadataInfo = matchingMetadata ? 
-            `with backend_metadata (${matchingMetadata.expected_duration_ms}ms, backend_seq=${backendSequence})` : 
-            'without metadata (will use fallback timing)';
-          
-          addLogEntry("audio_sequence", `Queued binary audio chunk ${metadataInfo}, queue_length=${audioQueueRef.current.length + 1}`);
-          
-          audioQueueRef.current.push(audioChunk);
+          // SIMPLE APPROACH: Queue audio chunks directly for immediate playback
+          audioQueueRef.current.push(event.data);
           if (!isPlayingRef.current) playNextGeminiChunk();
         } else {
           addLogEntry(
