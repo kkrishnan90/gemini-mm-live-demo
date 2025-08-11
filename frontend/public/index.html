@@ -25,6 +25,27 @@
       Learn how to configure a non-root public URL by running `npm run build`.
     -->
     <title>Customer Support Assistant</title>
+    
+    <script>
+      // Suppress common Chrome extension runtime.lastError messages
+      // These are typically benign and related to browser extensions or DevTools
+      const originalConsoleError = console.error;
+      console.error = function(...args) {
+        const message = args.join(' ');
+        
+        // Filter out known benign Chrome extension errors
+        if (message.includes('Could not establish connection. Receiving end does not exist') ||
+            message.includes('runtime.lastError') ||
+            message.includes('Extension context invalidated') ||
+            message.includes('The message port closed before a response was received')) {
+          // Suppress these specific errors as they're usually from browser extensions
+          return;
+        }
+        
+        // Log all other errors normally
+        originalConsoleError.apply(console, args);
+      };
+    </script>
   </head>
   <body>
     <noscript>You need to enable JavaScript to run this app.</noscript>
