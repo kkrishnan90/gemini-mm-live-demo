@@ -42,7 +42,7 @@ cd frontend
 # Install dependencies
 npm install
 
-# Development server
+# Development server (with host check disabled for development)
 npm start
 
 # Testing
@@ -50,6 +50,9 @@ npm test
 
 # Production build
 npm run build
+
+# Linting (if configured)
+npm run lint
 ```
 
 ## Environment Configuration
@@ -75,9 +78,14 @@ npm run build
 - **`travel_mock_data.py`**: Mock travel data and API responses for development/testing
 
 ### Frontend Architecture (`frontend/src/`)
-- **`App.js`**: Main React component handling WebSocket connections, audio recording/playback, and real-time transcription
-- **`App.css`**: Complete styling for the voice interface
+- **`App.js`**: Main React component coordinating session management and rendering panels
+- **`hooks/useSession.js`**: Central session management hook integrating audio, communication, and logging
+- **`hooks/useAudio.js`**: Audio processing hook managing microphone input, playback, and audio health monitoring
+- **`hooks/useCommunication.js`**: WebSocket communication management with connection resilience
+- **`components/`**: Modular UI components (ConsolePanel, MainPanel, ControlBar, StatusIndicators, ActionControls)
+- **`utils/`**: Audio processing utilities including buffer management, network resilience, and WebSocket utilities
 - **`public/audio-processor.js`**: Audio worklet for real-time audio processing at 16kHz input/24kHz output
+- **`public/enhanced-audio-processor.js`**: Enhanced audio processor with advanced features
 
 ### Audio Processing
 - **Input**: 16kHz PCM audio from microphone
@@ -95,24 +103,41 @@ The backend implements comprehensive travel booking agents:
 - `NameCorrectionAgent`: Handle various name correction types
 - And others for comprehensive customer support
 
+## Claude Code Development Rules
+
+### Critical Development Constraints
+1. **NEVER use any subagents or commands** - Work directly with available tools only
+2. **Work and accomplish for ONLY what is asked by the user** - STRICTLY avoid over engineering without users explicit permissions
+3. **IMPORTANT**: Explore, plan, debug, code, and review - **YOU MUST FOLLOW THIS PROCESS WITHOUT ANY SUBAGENTS**
+4. **STRICTLY DO NOT BREAK ANYTHING WHILE ASKED TO REFACTOR OR BUG FIX** - EXISTING FUNCTIONAL CODE SHOULD BE INTACT
+
 ## Development Guidelines
 
 ### Python Development
 - Use `uv` as the package manager for all Python operations
-- Always activate virtual environment before running commands
+- Always activate virtual environment before running commands: `source .venv/bin/activate`
+- Dependencies are managed via both `requirements.txt` and `pyproject.toml`
 - Use `google-genai` package for Generative AI integration with project-id "account-pocs"
 - Use Gemini 2.5 Flash or Gemini 2.5 Pro models (model ids: `gemini-2.5-flash`, `gemini-2.5-pro`)
 - Follow structured logging format for tool events and API interactions
+- Log capture system redirects stdout to frontend for real-time monitoring
 
 ### Frontend Development
-- React 19+ with functional components and hooks
-- FontAwesome icons for UI elements
+- React 19+ with functional components and hooks pattern
+- FontAwesome icons for UI elements (`@fortawesome/react-fontawesome`)
 - Real-time WebSocket communication with backend
 - Audio worklet implementation for performance-critical audio processing
+- Modular hook-based architecture for session, audio, and communication management
+- Development proxy configured to point to Cloud Run backend service
+- Network resilience management for unstable connections
 
 ### Testing
-- Backend: Use pytest for testing tool functions
-- Frontend: Jest/React Testing Library for component testing
+- **Backend**: Use pytest for testing tool functions (`python -m pytest test_all_tools.py`)
+- **Frontend**: Jest/React Testing Library for component testing (`npm test`)
+- **Audio Testing**: Dedicated HTML test files in `frontend/public/` for audio diagnostics:
+  - `audio-diagnostic-test.html`: Comprehensive audio system testing
+  - `audio-input-debug.html`: Microphone input debugging
+  - `quick-audio-test.html`: Quick audio functionality verification
 - Test audio processing with mock data from `travel_mock_data.py`
 
 ## Deployment
@@ -138,8 +163,31 @@ The application supports multiple Indian languages:
 
 The `travel_mock_data.py` provides comprehensive mock responses for:
 - Flight booking details and status
-- Hotel reservations
+- Hotel reservations  
 - Booking cancellations and modifications
 - Real-time logging of tool interactions
+- Global log store (`GLOBAL_LOG_STORE`) for tracking tool events
 
 Use these mock responses during development to test the complete conversation flow without external API dependencies.
+
+## Key Development Notes
+
+### Audio Architecture
+- The frontend implements a sophisticated audio processing pipeline with multiple fallback mechanisms
+- Audio buffer management handles overflow protection and configurable queue sizes
+- Network resilience manager provides connection stability during audio streaming
+- Voice Activity Detection (VAD) can be disabled via environment variable for testing
+
+### Component Architecture
+- Frontend follows a modular component structure with separation of concerns
+- Custom hooks manage complex state logic (audio, WebSocket communication, session management)
+- Real-time logging system provides visibility into tool function execution
+- Audio health monitoring and network quality assessment built-in
+
+### Development Workflow
+- Backend uses structured logging with JSON format for tool events
+- Frontend proxy points to Cloud Run service for seamless development
+- Multiple audio test utilities available for debugging audio processing issues
+- Mock data integration allows full-stack testing without external API dependencies
+- Use playwright MCP for any debugging to do screenshots or checking logs of the frontend
+- The backend and frontend are running in --reload mode in their respective tmux windows. DO NOT try to run the application yourself

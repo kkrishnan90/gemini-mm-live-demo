@@ -367,17 +367,20 @@ async def websocket_endpoint():
                             elif isinstance(client_data, bytes):
                                 audio_chunk = client_data
                                 if audio_chunk:
-                                    print(
-                                        f"🎤 Backend: Received audio from frontend: {len(audio_chunk)} bytes")
-                                    print(
-                                        f"📤 Backend: Sending audio to Gemini Live API: {len(audio_chunk)} bytes")
+                                    # Enhanced audio logging
+                                    print(f"🎤 AUDIO RECEIVED: {len(audio_chunk)} bytes from frontend")
+                                    print(f"🎤 AUDIO FIRST 10 BYTES: {audio_chunk[:10].hex() if len(audio_chunk) >= 10 else audio_chunk.hex()}")
+                                    print(f"📤 FORWARDING TO GEMINI: {len(audio_chunk)} bytes")
+                                    
                                     await session.send_realtime_input(
                                         audio=types.Blob(
                                             mime_type=f"audio/pcm;rate={INPUT_SAMPLE_RATE}",
                                             data=audio_chunk
                                         )
                                     )
-                                    # print(f"Quart Backend: Successfully sent mic audio to Gemini via send_realtime_input.")
+                                    print(f"✅ AUDIO SENT TO GEMINI: Successfully forwarded {len(audio_chunk)} bytes")
+                                else:
+                                    print(f"⚠️ AUDIO WARNING: Received empty audio chunk")
                             else:
                                 print(
                                     f"Quart Backend: Received unexpected data type from client: {type(client_data)}, content: {client_data[:100] if isinstance(client_data, bytes) else client_data}")

@@ -7,13 +7,8 @@ import {
   faPlay,
 } from '@fortawesome/free-solid-svg-icons';
 
-export const ActionControls = ({ 
-  isSessionActive, 
-  isRecording, 
-  isMuted, 
-  handleToggleSession, 
-  handleMicMuteToggle 
-}) => {
+export const ActionControls = (props) => {
+  const { isSessionActive, isRecording, isMuted, handleToggleSession, handleMicMuteToggle } = props;
   return (
     <div className="control-tray main-controls">
       <button

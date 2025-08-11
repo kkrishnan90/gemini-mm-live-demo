@@ -1,0 +1,994 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Audio Input Debug Test</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      .test-section {
+        background: #f8f9fa;
+        margin: 20px 0;
+        padding: 20px;
+        border-radius: 8px;
+        border: 1px solid #dee2e6;
+      }
+      .button {
+        background: #007bff;
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        margin: 5px;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .button:hover {
+        background: #0056b3;
+      }
+      .button:disabled {
+        background: #6c757d;
+        cursor: not-allowed;
+      }
+      .status {
+        margin: 10px 0;
+        padding: 10px;
+        border-radius: 4px;
+        font-family: monospace;
+      }
+      .success {
+        background: #d4edda;
+        color: #155724;
+      }
+      .error {
+        background: #f8d7da;
+        color: #721c24;
+      }
+      .warning {
+        background: #fff3cd;
+        color: #856404;
+      }
+      .info {
+        background: #d1ecf1;
+        color: #0c5460;
+      }
+      .log {
+        background: #f8f9fa;
+        border: 1px solid #dee2e6;
+        padding: 10px;
+        max-height: 300px;
+        overflow-y: auto;
+        font-family: monospace;
+        font-size: 12px;
+      }
+      .metrics {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        gap: 10px;
+        margin: 10px 0;
+      }
+      .metric {
+        background: white;
+        padding: 10px;
+        border-radius: 4px;
+        text-align: center;
+        border: 1px solid #dee2e6;
+      }
+      .metric-value {
+        font-size: 20px;
+        font-weight: bold;
+        color: #007bff;
+      }
+      .metric-label {
+        font-size: 12px;
+        color: #6c757d;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>🎤 Audio Input Debug Test</h1>
+    <p>
+      This test will help identify specific audio input issues in the Gemini
+      Live application.
+    </p>
+
+    <!-- Basic Microphone Test -->
+    <div class="test-section">
+      <h2>1. Basic Microphone Access</h2>
+      <button class="button" onclick="testBasicMicrophone()">
+        Test Microphone Access
+      </button>
+      <button class="button" onclick="testMicrophoneSettings()">
+        Check Microphone Settings
+      </button>
+      <div id="micStatus" class="status info">Ready to test...</div>
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-value" id="micSampleRate">-</div>
+          <div class="metric-label">Sample Rate</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="micChannels">-</div>
+          <div class="metric-label">Channels</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="micLatency">-</div>
+          <div class="metric-label">Latency (ms)</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AudioContext Test -->
+    <div class="test-section">
+      <h2>2. AudioContext Test</h2>
+      <button class="button" onclick="testAudioContext()">
+        Test AudioContext Creation
+      </button>
+      <button class="button" onclick="testAudioContextResume()">
+        Test AudioContext Resume
+      </button>
+      <div id="audioContextStatus" class="status info">Ready to test...</div>
+    </div>
+
+    <!-- AudioWorklet vs ScriptProcessor Test -->
+    <div class="test-section">
+      <h2>3. Audio Processor Test</h2>
+      <button class="button" onclick="testAudioWorkletSupport()">
+        Test AudioWorklet Support
+      </button>
+      <button class="button" onclick="testScriptProcessorFallback()">
+        Test ScriptProcessor Fallback
+      </button>
+      <button class="button" onclick="testEnhancedProcessor()">
+        Test Enhanced Audio Processor
+      </button>
+      <div id="processorStatus" class="status info">Ready to test...</div>
+    </div>
+
+    <!-- Audio Processing Chain Test -->
+    <div class="test-section">
+      <h2>4. Audio Processing Chain</h2>
+      <button class="button" onclick="testAudioProcessingChain()">
+        Test Full Processing Chain
+      </button>
+      <button class="button" onclick="testAudioDataFlow()">
+        Test Audio Data Flow
+      </button>
+      <div id="chainStatus" class="status info">Ready to test...</div>
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-value" id="audioLevel">-</div>
+          <div class="metric-label">Audio Level</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="processingLatency">-</div>
+          <div class="metric-label">Processing Latency</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WebSocket Audio Transmission Test -->
+    <div class="test-section">
+      <h2>5. WebSocket Audio Transmission</h2>
+      <button class="button" onclick="testWebSocketConnection()">
+        Test WebSocket Connection
+      </button>
+      <button class="button" onclick="testAudioTransmission()">
+        Test Audio Transmission
+      </button>
+      <div id="transmissionStatus" class="status info">Ready to test...</div>
+    </div>
+
+    <!-- Real-time Audio Test -->
+    <div class="test-section">
+      <h2>6. Real-time Audio Test</h2>
+      <button class="button" onclick="startRealTimeTest()" id="realTimeBtn">
+        Start Real-time Test
+      </button>
+      <button class="button" onclick="stopRealTimeTest()">
+        Stop Real-time Test
+      </button>
+      <div id="realTimeStatus" class="status info">Ready to test...</div>
+      <div class="metrics">
+        <div class="metric">
+          <div class="metric-value" id="chunksProcessed">0</div>
+          <div class="metric-label">Chunks Processed</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="chunksSent">0</div>
+          <div class="metric-label">Chunks Sent</div>
+        </div>
+        <div class="metric">
+          <div class="metric-value" id="errors">0</div>
+          <div class="metric-label">Errors</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Test Log -->
+    <div class="test-section">
+      <h2>Test Log</h2>
+      <button class="button" onclick="clearLog()">Clear Log</button>
+      <button class="button" onclick="exportLog()">Export Log</button>
+      <div id="testLog" class="log"></div>
+    </div>
+
+    <script>
+      let testLog = [];
+      let audioContext = null;
+      let mediaStream = null;
+      let testWebSocket = null;
+      let realTimeTestActive = false;
+      let audioProcessor = null;
+      let chunksProcessed = 0;
+      let chunksSent = 0;
+      let errorCount = 0;
+
+      function log(message, type = "info") {
+        const timestamp = new Date().toISOString();
+        const entry = { timestamp, message, type };
+        testLog.push(entry);
+
+        const logContainer = document.getElementById("testLog");
+        const logEntry = document.createElement("div");
+        logEntry.style.margin = "2px 0";
+        logEntry.style.padding = "2px 5px";
+        logEntry.style.backgroundColor =
+          type === "error"
+            ? "#f8d7da"
+            : type === "success"
+            ? "#d4edda"
+            : type === "warning"
+            ? "#fff3cd"
+            : "#f8f9fa";
+        logEntry.textContent = `[${
+          timestamp.split("T")[1].split(".")[0]
+        }] ${message}`;
+        logContainer.appendChild(logEntry);
+        logContainer.scrollTop = logContainer.scrollHeight;
+
+        console.log(`[AUDIO_INPUT_DEBUG] ${message}`);
+      }
+
+      function updateStatus(elementId, message, type = "info") {
+        const element = document.getElementById(elementId);
+        element.textContent = message;
+        element.className = `status ${type}`;
+      }
+
+      function clearLog() {
+        testLog = [];
+        document.getElementById("testLog").innerHTML = "";
+      }
+
+      function exportLog() {
+        const logText = testLog
+          .map(
+            (entry) =>
+              `[${entry.timestamp}] [${entry.type.toUpperCase()}] ${
+                entry.message
+              }`
+          )
+          .join("\n");
+
+        const blob = new Blob([logText], { type: "text/plain" });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = `audio-input-debug-${Date.now()}.log`;
+        a.click();
+        URL.revokeObjectURL(url);
+      }
+
+      // Test 1: Basic Microphone Access
+      async function testBasicMicrophone() {
+        log("Testing basic microphone access...", "info");
+        try {
+          const constraints = {
+            audio: {
+              sampleRate: 16000,
+              channelCount: 1,
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          };
+
+          mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
+          log("✅ Microphone access granted", "success");
+
+          const audioTracks = mediaStream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            const track = audioTracks[0];
+            const settings = track.getSettings();
+            const capabilities = track.getCapabilities();
+
+            log(
+              `Microphone settings: sampleRate=${settings.sampleRate}, channels=${settings.channelCount}`,
+              "info"
+            );
+            log(
+              `Microphone capabilities: sampleRate=${capabilities.sampleRate?.min}-${capabilities.sampleRate?.max}`,
+              "info"
+            );
+
+            document.getElementById("micSampleRate").textContent =
+              settings.sampleRate || "Unknown";
+            document.getElementById("micChannels").textContent =
+              settings.channelCount || "Unknown";
+
+            updateStatus(
+              "micStatus",
+              "Microphone access successful",
+              "success"
+            );
+            return true;
+          }
+        } catch (error) {
+          log(`❌ Microphone access failed: ${error.message}`, "error");
+          updateStatus("micStatus", `Failed: ${error.message}`, "error");
+          return false;
+        }
+      }
+
+      async function testMicrophoneSettings() {
+        log("Testing microphone settings and constraints...", "info");
+        try {
+          if (!mediaStream) {
+            const micOk = await testBasicMicrophone();
+            if (!micOk) return false;
+          }
+
+          const audioTracks = mediaStream.getAudioTracks();
+          if (audioTracks.length > 0) {
+            const track = audioTracks[0];
+            const settings = track.getSettings();
+            const constraints = track.getConstraints();
+
+            log(`Current settings: ${JSON.stringify(settings)}`, "info");
+            log(`Applied constraints: ${JSON.stringify(constraints)}`, "info");
+
+            // Test applying new constraints
+            try {
+              await track.applyConstraints({
+                sampleRate: 16000,
+                channelCount: 1,
+              });
+              log("✅ Constraints applied successfully", "success");
+            } catch (constraintError) {
+              log(
+                `⚠️ Constraint application failed: ${constraintError.message}`,
+                "warning"
+              );
+            }
+
+            updateStatus(
+              "micStatus",
+              "Microphone settings test completed",
+              "success"
+            );
+            return true;
+          }
+        } catch (error) {
+          log(`❌ Microphone settings test failed: ${error.message}`, "error");
+          updateStatus(
+            "micStatus",
+            `Settings test failed: ${error.message}`,
+            "error"
+          );
+          return false;
+        }
+      }
+
+      // Test 2: AudioContext
+      async function testAudioContext() {
+        log("Testing AudioContext creation...", "info");
+        try {
+          if (audioContext) {
+            audioContext.close();
+          }
+
+          audioContext = new (window.AudioContext || window.webkitAudioContext)(
+            {
+              sampleRate: 16000,
+            }
+          );
+
+          log(
+            `✅ AudioContext created: state=${audioContext.state}, sampleRate=${audioContext.sampleRate}`,
+            "success"
+          );
+
+          if (audioContext.state === "suspended") {
+            log(
+              "AudioContext is suspended, this is normal before user interaction",
+              "info"
+            );
+          }
+
+          updateStatus(
+            "audioContextStatus",
+            `AudioContext: ${audioContext.state} (${audioContext.sampleRate}Hz)`,
+            "success"
+          );
+          return true;
+        } catch (error) {
+          log(`❌ AudioContext creation failed: ${error.message}`, "error");
+          updateStatus(
+            "audioContextStatus",
+            `Failed: ${error.message}`,
+            "error"
+          );
+          return false;
+        }
+      }
+
+      async function testAudioContextResume() {
+        log("Testing AudioContext resume...", "info");
+        try {
+          if (!audioContext) {
+            const contextOk = await testAudioContext();
+            if (!contextOk) return false;
+          }
+
+          if (audioContext.state === "suspended") {
+            await audioContext.resume();
+            log(
+              `✅ AudioContext resumed: state=${audioContext.state}`,
+              "success"
+            );
+          } else {
+            log(
+              `AudioContext already running: state=${audioContext.state}`,
+              "info"
+            );
+          }
+
+          updateStatus(
+            "audioContextStatus",
+            `AudioContext resumed: ${audioContext.state}`,
+            "success"
+          );
+          return true;
+        } catch (error) {
+          log(`❌ AudioContext resume failed: ${error.message}`, "error");
+          updateStatus(
+            "audioContextStatus",
+            `Resume failed: ${error.message}`,
+            "error"
+          );
+          return false;
+        }
+      }
+
+      // Test 3: Audio Processor
+      async function testAudioWorkletSupport() {
+        log("Testing AudioWorklet support...", "info");
+        try {
+          if (!audioContext) {
+            const contextOk = await testAudioContext();
+            if (!contextOk) return false;
+          }
+
+          if (typeof AudioWorkletNode === "undefined") {
+            log("❌ AudioWorklet not supported in this browser", "warning");
+            updateStatus(
+              "processorStatus",
+              "AudioWorklet not supported - will use fallback",
+              "warning"
+            );
+            return false;
+          }
+
+          // Test loading the enhanced audio processor
+          try {
+            await audioContext.audioWorklet.addModule(
+              "/enhanced-audio-processor.js"
+            );
+            log(
+              "✅ Enhanced audio processor module loaded successfully",
+              "success"
+            );
+            updateStatus(
+              "processorStatus",
+              "AudioWorklet supported and processor loaded",
+              "success"
+            );
+            return true;
+          } catch (moduleError) {
+            log(
+              `⚠️ Failed to load audio processor module: ${moduleError.message}`,
+              "warning"
+            );
+            updateStatus(
+              "processorStatus",
+              "AudioWorklet supported but processor failed to load",
+              "warning"
+            );
+            return false;
+          }
+        } catch (error) {
+          log(`❌ AudioWorklet test failed: ${error.message}`, "error");
+          updateStatus("processorStatus", `Failed: ${error.message}`, "error");
+          return false;
+        }
+      }
+
+      async function testScriptProcessorFallback() {
+        log("Testing ScriptProcessor fallback...", "info");
+        try {
+          if (!audioContext) {
+            const contextOk = await testAudioContext();
+            if (!contextOk) return false;
+          }
+
+          // Create ScriptProcessorNode
+          const scriptNode = audioContext.createScriptProcessor(4096, 1, 1);
+
+          let processedFrames = 0;
+          scriptNode.onaudioprocess = (event) => {
+            processedFrames++;
+            if (processedFrames <= 5) {
+              log(`ScriptProcessor frame ${processedFrames} processed`, "info");
+            }
+          };
+
+          // Connect to destination temporarily
+          scriptNode.connect(audioContext.destination);
+
+          setTimeout(() => {
+            scriptNode.disconnect();
+            log(
+              `✅ ScriptProcessor test completed: ${processedFrames} frames processed`,
+              "success"
+            );
+            updateStatus(
+              "processorStatus",
+              "ScriptProcessor fallback working",
+              "success"
+            );
+          }, 1000);
+
+          return true;
+        } catch (error) {
+          log(`❌ ScriptProcessor test failed: ${error.message}`, "error");
+          updateStatus(
+            "processorStatus",
+            `ScriptProcessor failed: ${error.message}`,
+            "error"
+          );
+          return false;
+        }
+      }
+
+      async function testEnhancedProcessor() {
+        log("Testing enhanced audio processor...", "info");
+        try {
+          const workletSupported = await testAudioWorkletSupport();
+          if (!workletSupported) {
+            log(
+              "Skipping enhanced processor test - AudioWorklet not available",
+              "warning"
+            );
+            return false;
+          }
+
+          if (!mediaStream) {
+            const micOk = await testBasicMicrophone();
+            if (!micOk) return false;
+          }
+
+          const source = audioContext.createMediaStreamSource(mediaStream);
+          const processorNode = new AudioWorkletNode(
+            audioContext,
+            "enhanced-audio-processor"
+          );
+
+          source.connect(processorNode);
+
+          let messageCount = 0;
+          processorNode.port.onmessage = (event) => {
+            messageCount++;
+            log(
+              `Enhanced processor message ${messageCount}: ${event.data.type}`,
+              "info"
+            );
+
+            if (messageCount >= 3) {
+              source.disconnect();
+              processorNode.disconnect();
+              log("✅ Enhanced audio processor test completed", "success");
+              updateStatus(
+                "processorStatus",
+                "Enhanced processor working correctly",
+                "success"
+              );
+            }
+          };
+
+          // Send test configuration
+          processorNode.port.postMessage({
+            type: "CONFIGURE",
+            data: { isRecording: true, isMuted: false },
+          });
+
+          return true;
+        } catch (error) {
+          log(`❌ Enhanced processor test failed: ${error.message}`, "error");
+          updateStatus(
+            "processorStatus",
+            `Enhanced processor failed: ${error.message}`,
+            "error"
+          );
+          return false;
+        }
+      }
+
+      // Test 4: Audio Processing Chain
+      async function testAudioProcessingChain() {
+        log("Testing full audio processing chain...", "info");
+        try {
+          if (!audioContext) {
+            await testAudioContext();
+            await testAudioContextResume();
+          }
+
+          if (!mediaStream) {
+            const micOk = await testBasicMicrophone();
+            if (!micOk) return false;
+          }
+
+          const source = audioContext.createMediaStreamSource(mediaStream);
+          const analyser = audioContext.createAnalyser();
+          analyser.fftSize = 256;
+
+          source.connect(analyser);
+
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          let maxLevel = 0;
+          let frameCount = 0;
+
+          const processAudio = () => {
+            analyser.getByteFrequencyData(dataArray);
+            const level = Math.max(...dataArray);
+            maxLevel = Math.max(maxLevel, level);
+            frameCount++;
+
+            document.getElementById("audioLevel").textContent = level;
+
+            if (frameCount < 60) {
+              // Test for ~1 second at 60fps
+              requestAnimationFrame(processAudio);
+            } else {
+              source.disconnect();
+              log(
+                `✅ Audio processing chain test completed: max level=${maxLevel}, frames=${frameCount}`,
+                "success"
+              );
+              updateStatus(
+                "chainStatus",
+                maxLevel > 10
+                  ? "Audio processing chain working"
+                  : "Low audio level detected",
+                maxLevel > 10 ? "success" : "warning"
+              );
+            }
+          };
+
+          processAudio();
+          return true;
+        } catch (error) {
+          log(
+            `❌ Audio processing chain test failed: ${error.message}`,
+            "error"
+          );
+          updateStatus(
+            "chainStatus",
+            `Processing chain failed: ${error.message}`,
+            "error"
+          );
+          return false;
+        }
+      }
+
+      async function testAudioDataFlow() {
+        log("Testing audio data flow and latency...", "info");
+        try {
+          if (!audioContext || !mediaStream) {
+            log("Prerequisites not met, running setup tests...", "info");
+            await testAudioContext();
+            await testAudioContextResume();
+            await testBasicMicrophone();
+          }
+
+          const source = audioContext.createMediaStreamSource(mediaStream);
+          const scriptNode = audioContext.createScriptProcessor(1024, 1, 1);
+
+          const startTime = performance.now();
+          let firstProcessTime = null;
+          let processCount = 0;
+
+          scriptNode.onaudioprocess = (event) => {
+            if (!firstProcessTime) {
+              firstProcessTime = performance.now();
+              const latency = firstProcessTime - startTime;
+              document.getElementById(
+                "processingLatency"
+              ).textContent = `${latency.toFixed(1)}ms`;
+              log(
+                `First audio process callback: ${latency.toFixed(1)}ms latency`,
+                "info"
+              );
+            }
+
+            processCount++;
+            if (processCount >= 10) {
+              source.disconnect();
+              scriptNode.disconnect();
+              log(
+                `✅ Audio data flow test completed: ${processCount} callbacks`,
+                "success"
+              );
+              updateStatus(
+                "chainStatus",
+                "Audio data flow working correctly",
+                "success"
+              );
+            }
+          };
+
+          source.connect(scriptNode);
+          scriptNode.connect(audioContext.destination);
+
+          return true;
+        } catch (error) {
+          log(`❌ Audio data flow test failed: ${error.message}`, "error");
+          updateStatus(
+            "chainStatus",
+            `Data flow test failed: ${error.message}`,
+            "error"
+          );
+          return false;
+        }
+      }
+
+      // Test 5: WebSocket Audio Transmission
+      async function testWebSocketConnection() {
+        log("Testing WebSocket connection...", "info");
+        try {
+          if (testWebSocket) {
+            testWebSocket.close();
+          }
+
+          testWebSocket = new WebSocket(
+            "ws://localhost:8000/listen?lang=en-US"
+          );
+          testWebSocket.binaryType = "arraybuffer";
+
+          return new Promise((resolve) => {
+            const timeout = setTimeout(() => {
+              log("❌ WebSocket connection timeout", "error");
+              updateStatus("transmissionStatus", "Connection timeout", "error");
+              resolve(false);
+            }, 5000);
+
+            testWebSocket.onopen = () => {
+              clearTimeout(timeout);
+              log("✅ WebSocket connection established", "success");
+              updateStatus(
+                "transmissionStatus",
+                "WebSocket connected successfully",
+                "success"
+              );
+              resolve(true);
+            };
+
+            testWebSocket.onerror = (error) => {
+              clearTimeout(timeout);
+              log(`❌ WebSocket connection error: ${error}`, "error");
+              updateStatus(
+                "transmissionStatus",
+                "WebSocket connection failed",
+                "error"
+              );
+              resolve(false);
+            };
+
+            testWebSocket.onmessage = (event) => {
+              log(`WebSocket message received: ${typeof event.data}`, "info");
+            };
+          });
+        } catch (error) {
+          log(`❌ WebSocket test failed: ${error.message}`, "error");
+          updateStatus(
+            "transmissionStatus",
+            `Failed: ${error.message}`,
+            "error"
+          );
+          return false;
+        }
+      }
+
+      async function testAudioTransmission() {
+        log("Testing audio transmission over WebSocket...", "info");
+        try {
+          if (!testWebSocket || testWebSocket.readyState !== WebSocket.OPEN) {
+            const wsOk = await testWebSocketConnection();
+            if (!wsOk) return false;
+          }
+
+          // Create test audio data (1 second of 440Hz sine wave at 16kHz)
+          const sampleRate = 16000;
+          const duration = 1; // seconds
+          const samples = sampleRate * duration;
+          const audioData = new Float32Array(samples);
+
+          for (let i = 0; i < samples; i++) {
+            audioData[i] = Math.sin((2 * Math.PI * 440 * i) / sampleRate) * 0.3;
+          }
+
+          // Convert to PCM16 bytes
+          const pcmData = new Int16Array(samples);
+          for (let i = 0; i < samples; i++) {
+            pcmData[i] = Math.max(
+              -32768,
+              Math.min(32767, audioData[i] * 32767)
+            );
+          }
+
+          testWebSocket.send(pcmData.buffer);
+          log(
+            `✅ Audio data transmitted: ${pcmData.buffer.byteLength} bytes`,
+            "success"
+          );
+          updateStatus(
+            "transmissionStatus",
+            "Audio transmission test completed",
+            "success"
+          );
+          return true;
+        } catch (error) {
+          log(`❌ Audio transmission test failed: ${error.message}`, "error");
+          updateStatus(
+            "transmissionStatus",
+            `Transmission failed: ${error.message}`,
+            "error"
+          );
+          return false;
+        }
+      }
+
+      // Test 6: Real-time Audio Test
+      async function startRealTimeTest() {
+        log("Starting real-time audio test...", "info");
+        try {
+          if (realTimeTestActive) {
+            log("Real-time test already active", "warning");
+            return;
+          }
+
+          // Reset counters
+          chunksProcessed = 0;
+          chunksSent = 0;
+          errorCount = 0;
+
+          // Setup prerequisites
+          if (!audioContext) {
+            await testAudioContext();
+            await testAudioContextResume();
+          }
+
+          if (!mediaStream) {
+            const micOk = await testBasicMicrophone();
+            if (!micOk) return false;
+          }
+
+          if (!testWebSocket || testWebSocket.readyState !== WebSocket.OPEN) {
+            const wsOk = await testWebSocketConnection();
+            if (!wsOk) return false;
+          }
+
+          realTimeTestActive = true;
+          document.getElementById("realTimeBtn").disabled = true;
+
+          // Create audio processing chain
+          const source = audioContext.createMediaStreamSource(mediaStream);
+          const scriptNode = audioContext.createScriptProcessor(1024, 1, 1);
+
+          scriptNode.onaudioprocess = (event) => {
+            if (!realTimeTestActive) return;
+
+            try {
+              const inputBuffer = event.inputBuffer;
+              const inputData = inputBuffer.getChannelData(0);
+
+              // Convert to PCM16
+              const pcmData = new Int16Array(inputData.length);
+              for (let i = 0; i < inputData.length; i++) {
+                pcmData[i] = Math.max(
+                  -32768,
+                  Math.min(32767, inputData[i] * 32767)
+                );
+              }
+
+              chunksProcessed++;
+              document.getElementById("chunksProcessed").textContent =
+                chunksProcessed;
+
+              // Send to WebSocket
+              if (
+                testWebSocket &&
+                testWebSocket.readyState === WebSocket.OPEN
+              ) {
+                testWebSocket.send(pcmData.buffer);
+                chunksSent++;
+                document.getElementById("chunksSent").textContent = chunksSent;
+              }
+
+              if (chunksProcessed % 50 === 0) {
+                log(
+                  `Real-time test progress: ${chunksProcessed} chunks processed, ${chunksSent} sent`,
+                  "info"
+                );
+              }
+            } catch (error) {
+              errorCount++;
+              document.getElementById("errors").textContent = errorCount;
+              log(`Real-time test error: ${error.message}`, "error");
+            }
+          };
+
+          source.connect(scriptNode);
+          scriptNode.connect(audioContext.destination);
+
+          audioProcessor = { source, scriptNode };
+
+          log("✅ Real-time audio test started", "success");
+          updateStatus("realTimeStatus", "Real-time test active", "success");
+          return true;
+        } catch (error) {
+          log(`❌ Real-time test failed to start: ${error.message}`, "error");
+          updateStatus(
+            "realTimeStatus",
+            `Failed to start: ${error.message}`,
+            "error"
+          );
+          realTimeTestActive = false;
+          document.getElementById("realTimeBtn").disabled = false;
+          return false;
+        }
+      }
+
+      function stopRealTimeTest() {
+        log("Stopping real-time audio test...", "info");
+        realTimeTestActive = false;
+
+        if (audioProcessor) {
+          audioProcessor.source.disconnect();
+          audioProcessor.scriptNode.disconnect();
+          audioProcessor = null;
+        }
+
+        document.getElementById("realTimeBtn").disabled = false;
+
+        log(
+          `✅ Real-time test stopped: ${chunksProcessed} chunks processed, ${chunksSent} sent, ${errorCount} errors`,
+          "success"
+        );
+        updateStatus(
+          "realTimeStatus",
+          `Test completed: ${chunksProcessed} processed, ${chunksSent} sent`,
+          "success"
+        );
+      }
+
+      // Auto-run basic tests on page load
+      window.addEventListener("load", () => {
+        log("Audio input debug test page loaded", "info");
+        log("Click test buttons to diagnose audio input issues", "info");
+      });
+    </script>
+  </body>
+</html>

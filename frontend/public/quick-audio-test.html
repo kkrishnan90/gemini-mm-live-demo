@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Quick Audio Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 600px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        .test {
+            background: #f8f9fa;
+            margin: 20px 0;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #dee2e6;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            margin: 5px;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        button:hover { background: #0056b3; }
+        button:disabled { background: #6c757d; cursor: not-allowed; }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 4px;
+            font-family: monospace;
+        }
+        .success { background: #d4edda; color: #155724; }
+        .error { background: #f8d7da; color: #721c24; }
+        .warning { background: #fff3cd; color: #856404; }
+        .info { background: #d1ecf1; color: #0c5460; }
+        .log {
+            background: #f8f9fa;
+            border: 1px solid #dee2e6;
+            padding: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔊 Quick Audio Input Test</h1>
+    <p>This test will quickly identify audio input issues.</p>
+
+    <div class="test">
+        <h3>1. Basic Audio Test</h3>
+        <button onclick="testBasicAudio()">Test Basic Audio</button>
+        <div id="basicStatus" class="status info">Ready to test...</div>
+    </div>
+
+    <div class="test">
+        <h3>2. Microphone Test</h3>
+        <button onclick="testMicrophone()">Test Microphone</button>
+        <div id="micStatus" class="status info">Ready to test...</div>
+    </div>
+
+    <div class="test">
+        <h3>3. AudioWorklet Test</h3>
+        <button onclick="testAudioWorklet()">Test AudioWorklet</button>
+        <div id="workletStatus" class="status info">Ready to test...</div>
+    </div>
+
+    <div class="test">
+        <h3>4. WebSocket Test</h3>
+        <button onclick="testWebSocket()">Test WebSocket</button>
+        <div id="wsStatus" class="status info">Ready to test...</div>
+    </div>
+
+    <div class="test">
+        <h3>5. Full Chain Test</h3>
+        <button onclick="testFullChain()">Test Full Audio Chain</button>
+        <div id="chainStatus" class="status info">Ready to test...</div>
+    </div>
+
+    <div class="test">
+        <h3>Test Log</h3>
+        <button onclick="clearLog()">Clear</button>
+        <div id="log" class="log"></div>
+    </div>
+
+    <script>
+        let audioContext = null;
+        let mediaStream = null;
+        let webSocket = null;
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const entry = document.createElement('div');
+            entry.style.color = type === 'error' ? '#721c24' : 
+                               type === 'success' ? '#155724' : 
+                               type === 'warning' ? '#856404' : '#0c5460';
+            entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+            logDiv.appendChild(entry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+            console.log(`[QUICK_TEST] ${message}`);
+        }
+
+        function updateStatus(id, message, type) {
+            const element = document.getElementById(id);
+            element.textContent = message;
+            element.className = `status ${type}`;
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+        }
+
+        async function testBasicAudio() {
+            log('Testing basic audio context...', 'info');
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+                log(`✅ AudioContext created: ${audioContext.state} @ ${audioContext.sampleRate}Hz`, 'success');
+                
+                if (audioContext.state === 'suspended') {
+                    await audioContext.resume();
+                    log(`✅ AudioContext resumed: ${audioContext.state}`, 'success');
+                }
+                
+                // Test audio output
+                const oscillator = audioContext.createOscillator();
+                const gainNode = audioContext.createGain();
+                oscillator.frequency.setValueAtTime(440, audioContext.currentTime);
+                gainNode.gain.setValueAtTime(0.1, audioContext.currentTime);
+                oscillator.connect(gainNode);
+                gainNode.connect(audioContext.destination);
+                oscillator.start();
+                setTimeout(() => oscillator.stop(), 500);
+                
+                updateStatus('basicStatus', 'Basic audio working', 'success');
+                return true;
+            } catch (error) {
+                log(`❌ Basic audio failed: ${error.message}`, 'error');
+                updateStatus('basicStatus', `Failed: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function testMicrophone() {
+            log('Testing microphone access...', 'info');
+            try {
+                mediaStream = await navigator.mediaDevices.getUserMedia({
+                    audio: { sampleRate: 16000, channelCount: 1 }
+                });
+                log('✅ Microphone access granted', 'success');
+                
+                const tracks = mediaStream.getAudioTracks();
+                if (tracks.length > 0) {
+                    const settings = tracks[0].getSettings();
+                    log(`Mic settings: ${settings.sampleRate}Hz, ${settings.channelCount} channels`, 'info');
+                }
+                
+                // Test audio processing
+                if (!audioContext) await testBasicAudio();
+                
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                const analyser = audioContext.createAnalyser();
+                source.connect(analyser);
+                
+                const dataArray = new Uint8Array(analyser.frequencyBinCount);
+                let maxLevel = 0;
+                let frameCount = 0;
+                
+                const checkLevel = () => {
+                    analyser.getByteFrequencyData(dataArray);
+                    const level = Math.max(...dataArray);
+                    maxLevel = Math.max(maxLevel, level);
+                    frameCount++;
+                    
+                    if (frameCount < 30) {
+                        requestAnimationFrame(checkLevel);
+                    } else {
+                        source.disconnect();
+                        log(`Audio level test: max=${maxLevel}`, maxLevel > 5 ? 'success' : 'warning');
+                        updateStatus('micStatus', 
+                            maxLevel > 5 ? 'Microphone working' : 'Low audio level', 
+                            maxLevel > 5 ? 'success' : 'warning');
+                    }
+                };
+                checkLevel();
+                
+                return true;
+            } catch (error) {
+                log(`❌ Microphone failed: ${error.message}`, 'error');
+                updateStatus('micStatus', `Failed: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function testAudioWorklet() {
+            log('Testing AudioWorklet support...', 'info');
+            try {
+                if (!audioContext) await testBasicAudio();
+                
+                if (typeof AudioWorkletNode === 'undefined') {
+                    log('❌ AudioWorklet not supported', 'warning');
+                    updateStatus('workletStatus', 'AudioWorklet not supported', 'warning');
+                    return false;
+                }
+                
+                try {
+                    await audioContext.audioWorklet.addModule('/enhanced-audio-processor.js');
+                    log('✅ Enhanced audio processor loaded', 'success');
+                    
+                    const workletNode = new AudioWorkletNode(audioContext, 'enhanced-audio-processor');
+                    log('✅ AudioWorklet node created', 'success');
+                    
+                    updateStatus('workletStatus', 'AudioWorklet working', 'success');
+                    return true;
+                } catch (moduleError) {
+                    log(`⚠️ AudioWorklet module failed: ${moduleError.message}`, 'warning');
+                    updateStatus('workletStatus', 'AudioWorklet module failed', 'warning');
+                    return false;
+                }
+            } catch (error) {
+                log(`❌ AudioWorklet test failed: ${error.message}`, 'error');
+                updateStatus('workletStatus', `Failed: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function testWebSocket() {
+            log('Testing WebSocket connection...', 'info');
+            try {
+                webSocket = new WebSocket('ws://localhost:8000/listen?lang=en-US');
+                webSocket.binaryType = 'arraybuffer';
+                
+                return new Promise((resolve) => {
+                    const timeout = setTimeout(() => {
+                        log('❌ WebSocket timeout', 'error');
+                        updateStatus('wsStatus', 'Connection timeout', 'error');
+                        resolve(false);
+                    }, 5000);
+                    
+                    webSocket.onopen = () => {
+                        clearTimeout(timeout);
+                        log('✅ WebSocket connected', 'success');
+                        updateStatus('wsStatus', 'WebSocket working', 'success');
+                        resolve(true);
+                    };
+                    
+                    webSocket.onerror = (error) => {
+                        clearTimeout(timeout);
+                        log(`❌ WebSocket error: ${error}`, 'error');
+                        updateStatus('wsStatus', 'WebSocket failed', 'error');
+                        resolve(false);
+                    };
+                });
+            } catch (error) {
+                log(`❌ WebSocket test failed: ${error.message}`, 'error');
+                updateStatus('wsStatus', `Failed: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        async function testFullChain() {
+            log('Testing full audio chain...', 'info');
+            try {
+                // Run all prerequisite tests
+                const basicOk = await testBasicAudio();
+                const micOk = await testMicrophone();
+                const workletOk = await testAudioWorklet();
+                const wsOk = await testWebSocket();
+                
+                if (!basicOk || !micOk || !wsOk) {
+                    log('❌ Prerequisites failed for full chain test', 'error');
+                    updateStatus('chainStatus', 'Prerequisites failed', 'error');
+                    return false;
+                }
+                
+                // Test audio processing and transmission
+                const source = audioContext.createMediaStreamSource(mediaStream);
+                const scriptNode = audioContext.createScriptProcessor(1024, 1, 1);
+                
+                let chunksProcessed = 0;
+                let chunksSent = 0;
+                
+                scriptNode.onaudioprocess = (event) => {
+                    const inputData = event.inputBuffer.getChannelData(0);
+                    
+                    // Convert to PCM16
+                    const pcmData = new Int16Array(inputData.length);
+                    for (let i = 0; i < inputData.length; i++) {
+                        pcmData[i] = Math.max(-32768, Math.min(32767, inputData[i] * 32767));
+                    }
+                    
+                    chunksProcessed++;
+                    
+                    // Send to WebSocket
+                    if (webSocket && webSocket.readyState === WebSocket.OPEN) {
+                        webSocket.send(pcmData.buffer);
+                        chunksSent++;
+                    }
+                    
+                    if (chunksProcessed >= 10) {
+                        source.disconnect();
+                        scriptNode.disconnect();
+                        log(`✅ Full chain test completed: ${chunksProcessed} processed, ${chunksSent} sent`, 'success');
+                        updateStatus('chainStatus', `Full chain working: ${chunksSent}/${chunksProcessed} sent`, 'success');
+                    }
+                };
+                
+                source.connect(scriptNode);
+                scriptNode.connect(audioContext.destination);
+                
+                return true;
+            } catch (error) {
+                log(`❌ Full chain test failed: ${error.message}`, 'error');
+                updateStatus('chainStatus', `Failed: ${error.message}`, 'error');
+                return false;
+            }
+        }
+
+        // Auto-run basic test on load
+        window.addEventListener('load', () => {
+            log('Quick audio test loaded', 'info');
+        });
+    </script>
+</body>
+</html>

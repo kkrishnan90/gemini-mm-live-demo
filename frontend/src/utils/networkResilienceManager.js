@@ -1034,6 +1034,24 @@ export class NetworkResilienceManager {
   }
   
   /**
+   * Notify manager of microphone state changes
+   */
+  notifyMicActive(isActive) {
+    this.emitEvent('micStateChanged', { 
+      isActive,
+      timestamp: Date.now()
+    });
+    
+    // Optionally adjust settings based on mic state
+    if (isActive) {
+      // Microphone is active - ensure optimal settings
+      if (this.options.enableAdaptiveSettings) {
+        this.qualityMonitor.measureQuality();
+      }
+    }
+  }
+
+  /**
    * Enhanced data sending with bulletproof validation and fallback
    */
   async sendData(data, priority = 'normal') {
