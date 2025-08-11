@@ -200,4 +200,5 @@ system_instructions.txt
 tool_call.json
 GEMINI.md
 PLAN.md
-.gemini-clipboard/
+.gemini-clipboard/.serena/
+.serena/
