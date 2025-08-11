@@ -9,7 +9,7 @@
  * - Network error recovery and circuit breaker patterns
  */
 
-import { AudioCircuitBreaker, AudioErrorRecovery } from './audioUtils.js';
+import { AudioCircuitBreaker } from './audioUtils.js';
 
 /**
  * WebSocket Backpressure Manager
@@ -904,12 +904,63 @@ export class NetworkResilienceManager {
   }
   
   /**
-   * Check if the network resilience manager is ready for audio transmission
+   * Enhanced readiness check with automatic recovery attempts
    */
   isReady() {
-    return this.backpressureManager.socket && 
-           this.backpressureManager.socket.readyState === WebSocket.OPEN &&
-           this.backpressureManager.circuitBreaker.state !== 'OPEN';
+    const socket = this.backpressureManager.socket;
+    const circuitBreaker = this.backpressureManager.circuitBreaker;
+    
+    // Basic checks
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return false;
+    }
+    
+    // Circuit breaker check with auto-recovery
+    if (circuitBreaker.state === 'OPEN') {
+      // Attempt intelligent recovery
+      const recovery = this.performIntelligentRecovery();
+      if (recovery.recovered) {
+        return true; // Recovery successful, now ready
+      }
+      return false; // Recovery failed or not needed
+    }
+    
+    return true;
+  }
+  
+  /**
+   * BULLETPROOF READINESS: Multiple validation layers with fallback paths
+   */
+  isBulletproofReady() {
+    const socket = this.backpressureManager.socket;
+    
+    // Layer 1: Basic WebSocket validation
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      return { ready: false, reason: 'websocket_not_open', layer: 1 };
+    }
+    
+    // Layer 2: Circuit breaker validation with auto-recovery
+    const circuitBreaker = this.backpressureManager.circuitBreaker;
+    if (circuitBreaker.state === 'OPEN') {
+      const recovery = this.performIntelligentRecovery();
+      if (!recovery.recovered) {
+        return { ready: false, reason: 'circuit_breaker_open', layer: 2, recovery };
+      }
+    }
+    
+    // Layer 3: Buffer health validation
+    const bufferedAmount = socket.bufferedAmount || 0;
+    const maxBuffer = this.backpressureManager.options.maxBufferSize;
+    if (bufferedAmount > maxBuffer * 0.9) {
+      return { ready: false, reason: 'buffer_near_full', layer: 3, bufferedAmount, maxBuffer };
+    }
+    
+    // Layer 4: Manager component validation
+    if (!this.backpressureManager || !circuitBreaker) {
+      return { ready: false, reason: 'missing_components', layer: 4 };
+    }
+    
+    return { ready: true, reason: 'all_checks_passed', bufferedAmount };
   }
   
   /**
@@ -937,16 +988,96 @@ export class NetworkResilienceManager {
         this.backpressureManager.socket.readyState === WebSocket.OPEN &&
         this.backpressureManager.circuitBreaker.state === 'OPEN') {
       this.backpressureManager.circuitBreaker.reset();
+      this.emitEvent('circuitBreakerRecovered', { 
+        reason: 'force_recovery',
+        socketState: this.backpressureManager.socket.readyState 
+      });
       return true;
     }
     return false;
   }
   
   /**
-   * Send data with resilience handling
+   * ENHANCED PERMANENT FIX: Intelligent circuit breaker recovery with health validation
+   */
+  performIntelligentRecovery() {
+    const socket = this.backpressureManager.socket;
+    const circuitBreaker = this.backpressureManager.circuitBreaker;
+    
+    if (!socket || !circuitBreaker) {
+      return { recovered: false, reason: 'missing_components' };
+    }
+    
+    // Check if recovery is needed and feasible
+    if (socket.readyState === WebSocket.OPEN && circuitBreaker.state === 'OPEN') {
+      // Additional health checks
+      const bufferedAmount = socket.bufferedAmount || 0;
+      const isHealthy = bufferedAmount < this.backpressureManager.options.highWaterMark;
+      
+      if (isHealthy) {
+        circuitBreaker.reset();
+        this.emitEvent('circuitBreakerRecovered', { 
+          reason: 'intelligent_recovery',
+          socketState: socket.readyState,
+          bufferedAmount,
+          isHealthy: true
+        });
+        return { recovered: true, reason: 'healthy_recovery', bufferedAmount };
+      } else {
+        return { recovered: false, reason: 'socket_unhealthy', bufferedAmount };
+      }
+    }
+    
+    return { recovered: false, reason: 'no_recovery_needed', 
+             socketState: socket.readyState, 
+             circuitState: circuitBreaker.state };
+  }
+  
+  /**
+   * Enhanced data sending with bulletproof validation and fallback
    */
   async sendData(data, priority = 'normal') {
-    return await this.backpressureManager.send(data, priority);
+    // Bulletproof readiness check
+    const readiness = this.isBulletproofReady();
+    if (!readiness.ready) {
+      const error = new Error(`NetworkResilienceManager not ready: ${readiness.reason} (layer ${readiness.layer})`);
+      error.readiness = readiness;
+      throw error;
+    }
+    
+    try {
+      return await this.backpressureManager.send(data, priority);
+    } catch (error) {
+      // Enhanced error context
+      error.networkState = this.getMetrics();
+      error.readiness = readiness;
+      throw error;
+    }
+  }
+  
+  /**
+   * ULTIMATE FAILSAFE: Direct transmission bypassing all checks (emergency only)
+   */
+  emergencyTransmit(data) {
+    const socket = this.backpressureManager.socket;
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      throw new Error('Emergency transmission failed: WebSocket not available');
+    }
+    
+    try {
+      socket.send(data);
+      this.emitEvent('emergencyTransmission', { 
+        size: data.byteLength || data.length,
+        reason: 'failsafe_fallback'
+      });
+      return true;
+    } catch (error) {
+      this.emitEvent('emergencyTransmissionFailed', { 
+        error: error.message,
+        size: data.byteLength || data.length
+      });
+      throw error;
+    }
   }
   
   /**
@@ -1004,8 +1135,10 @@ export class NetworkResilienceManager {
   }
 }
 
-export default {
+const networkResilienceExports = {
   WebSocketBackpressureManager,
   NetworkQualityMonitor,
   NetworkResilienceManager
 };
+
+export default networkResilienceExports;
