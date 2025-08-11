@@ -340,6 +340,16 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
           this.updateVADConfig(data);
           break;
           
+        case 'START_PROCESSING':
+          this.isRecording = data.recording !== undefined ? data.recording : true;
+          this.resetBuffers();
+          break;
+          
+        case 'STOP_PROCESSING':
+          this.isRecording = false;
+          this.resetBuffers();
+          break;
+          
         default:
           console.warn('Unknown message type:', type);
       }
