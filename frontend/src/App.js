@@ -860,31 +860,17 @@ const App = () => {
       const currentTime = audioCtx.currentTime;
       const audioBufferDuration = audioBuffer.duration;
       
-      // SINGLE SOURCE OF TRUTH: Use ONLY backend metadata for timing
-      const expectedDurationSeconds = audioChunk.expectedDurationMs ? 
-        audioChunk.expectedDurationMs / 1000 : null;
+      // SOLUTION 1: Use backend metadata with fallback calculation
+      let expectedDurationSeconds;
       
-      // CRITICAL FIX 2: Proper cleanup before continuing when metadata is missing
-      if (!expectedDurationSeconds) {
-        addLogEntry("error", `Missing backend timing metadata for chunk seq=${audioChunk.sequence} - skipping chunk`);
-        addLogEntry("audio_flow_control", "⚠️ Audio chunk skipped due to missing timing metadata - continuing with next chunk");
-        
-        // CRITICAL: Proper cleanup before continuing
-        isPlayingRef.current = false;
-        
-        if (audioProcessorRef.current) {
-          audioProcessorRef.current.setSystemPlaying(false);
-        }
-        
-        if (currentAudioSourceRef.current) {
-          currentAudioSourceRef.current = null;
-        }
-        
-        // Continue with next chunk after proper cleanup
-        if (audioQueueRef.current.length > 0) {
-          setTimeout(() => playNextGeminiChunk(), AUDIO_RECOVERY_DELAY_MS);
-        }
-        return;
+      if (audioChunk.expectedDurationMs) {
+        // PRIMARY: Use backend metadata timing
+        expectedDurationSeconds = audioChunk.expectedDurationMs / 1000;
+        addLogEntry("audio_timing", `✅ Using backend timing: ${audioChunk.expectedDurationMs}ms (backend_seq=${audioChunk.sequence})`);
+      } else {
+        // FALLBACK: Calculate duration from audio buffer when metadata is missing
+        expectedDurationSeconds = audioBufferDuration;
+        addLogEntry("audio_timing", `⚠️ Using calculated timing: ${(expectedDurationSeconds * 1000).toFixed(1)}ms (no backend metadata, seq=${audioChunk.sequence})`);
       }
       
       // Initialize scheduled time with minimal buffer for first chunk
@@ -1761,26 +1747,40 @@ const App = () => {
         } else if (event.data instanceof ArrayBuffer) {
           addLogEntry("audio_receive", `📥 Received binary audio from backend: ${event.data.byteLength} bytes`);
           
-          // Try to find matching metadata for this audio chunk
+          // SOLUTION 1: Find matching metadata using backend sequence numbers and correlation
           const currentTime = Date.now();
           let matchingMetadata = null;
-          let bestSequence = audioSequenceRef.current++;
+          let backendSequence = null;
           
-          // Look for metadata within reasonable time window (500ms)
+          // PRIMARY CORRELATION: Find by size and timing (backend sequence numbers are authoritative)
           for (const [sequence, metadata] of pendingMetadataRef.current.entries()) {
             const metadataAge = currentTime - (metadata.timestamp * 1000); // Backend timestamp is in seconds
             if (metadataAge >= 0 && metadataAge <= 500 && metadata.size_bytes === event.data.byteLength) {
               matchingMetadata = metadata;
-              bestSequence = sequence;
+              backendSequence = sequence; // Use backend sequence as authoritative
               pendingMetadataRef.current.delete(sequence);
+              addLogEntry("audio_correlation", `✅ Found metadata correlation: backend_seq=${sequence}, size=${metadata.size_bytes}, age=${metadataAge}ms`);
               break;
             }
           }
           
-          // Create enhanced audio chunk with metadata if available
+          // FALLBACK CORRELATION: Find closest by size if timing doesn't match
+          if (!matchingMetadata) {
+            for (const [sequence, metadata] of pendingMetadataRef.current.entries()) {
+              if (metadata.size_bytes === event.data.byteLength) {
+                matchingMetadata = metadata;
+                backendSequence = sequence;
+                pendingMetadataRef.current.delete(sequence);
+                addLogEntry("audio_correlation", `⚠️ Fallback correlation by size: backend_seq=${sequence}, size=${metadata.size_bytes}`);
+                break;
+              }
+            }
+          }
+          
+          // Create audio chunk using BACKEND sequence (no frontend sequence assignment)
           const audioChunk = {
             data: event.data,
-            sequence: bestSequence,
+            sequence: backendSequence, // Use backend sequence directly (can be null)
             timestamp: currentTime,
             size: event.data.byteLength,
             // Enhanced metadata from backend (if available)
@@ -1788,14 +1788,15 @@ const App = () => {
             sampleRate: matchingMetadata?.sample_rate || 24000,
             backendTimestamp: matchingMetadata?.timestamp,
             wasBuffered: matchingMetadata?.buffered || false,
-            flushedByTimeout: matchingMetadata?.flushed_by_timeout || false
+            flushedByTimeout: matchingMetadata?.flushed_by_timeout || false,
+            needsMetadata: !matchingMetadata // Flag for chunks without metadata
           };
           
           const metadataInfo = matchingMetadata ? 
-            `with metadata (${matchingMetadata.expected_duration_ms}ms)` : 
-            'without metadata';
+            `with backend_metadata (${matchingMetadata.expected_duration_ms}ms, backend_seq=${backendSequence})` : 
+            'without metadata (will use fallback timing)';
           
-          addLogEntry("audio_sequence", `Queued binary audio chunk seq=${bestSequence} ${metadataInfo}, queue_length=${audioQueueRef.current.length + 1}`);
+          addLogEntry("audio_sequence", `Queued binary audio chunk ${metadataInfo}, queue_length=${audioQueueRef.current.length + 1}`);
           
           audioQueueRef.current.push(audioChunk);
           if (!isPlayingRef.current) playNextGeminiChunk();
