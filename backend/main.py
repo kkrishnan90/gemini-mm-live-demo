@@ -295,7 +295,7 @@ async def websocket_endpoint():
             active_processing = True
 
             async def handle_client_input_and_forward():
-                nonlocal active_processing, client_ready_for_audio, initial_audio_buffer
+                nonlocal active_processing, client_ready_for_audio, initial_audio_buffer, audio_sequence_counter
                 # print("Quart Backend: Starting handle_client_input_and_forward task.")
                 try:
                     while active_processing:
@@ -390,7 +390,7 @@ async def websocket_endpoint():
                     active_processing = False  # Ensure graceful shutdown of the other task
 
             async def receive_from_gemini_and_forward_to_client():
-                nonlocal active_processing, current_session_handle, client_ready_for_audio, initial_audio_buffer, connection_start_time
+                nonlocal active_processing, current_session_handle, client_ready_for_audio, initial_audio_buffer, connection_start_time, audio_sequence_counter
                 # print("Quart Backend: Starting receive_from_gemini_and_forward_to_client task.")
 
                 available_functions = {
