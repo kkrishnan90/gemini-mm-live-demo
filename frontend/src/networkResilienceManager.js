@@ -904,6 +904,31 @@ export class NetworkResilienceManager {
   }
   
   /**
+   * Check if the network resilience manager is ready for audio transmission
+   */
+  isReady() {
+    return this.backpressureManager.socket && 
+           this.backpressureManager.socket.readyState === WebSocket.OPEN &&
+           !this.backpressureManager.circuitBreaker.isOpen();
+  }
+  
+  /**
+   * Get the circuit breaker instance for direct access
+   */
+  get audioCircuitBreaker() {
+    return this.backpressureManager.circuitBreaker;
+  }
+  
+  /**
+   * Reset circuit breaker on successful connection
+   */
+  resetCircuitBreaker() {
+    if (this.backpressureManager.circuitBreaker) {
+      this.backpressureManager.circuitBreaker.reset();
+    }
+  }
+  
+  /**
    * Send data with resilience handling
    */
   async sendData(data, priority = 'normal') {

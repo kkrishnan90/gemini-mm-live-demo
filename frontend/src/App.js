@@ -128,6 +128,15 @@ const sendAudioReadySignal = (playbackContext, socket, addLogEntry, connectionSi
   }
 };
 
+/**
+ * Check if WebSocket and network resilience manager are ready for audio transmission
+ */
+const isWebSocketReady = (socketRef, networkResilienceManagerRef) => {
+  return socketRef?.readyState === WebSocket.OPEN &&
+         networkResilienceManagerRef?.isReady() &&
+         !networkResilienceManagerRef?.audioCircuitBreaker?.isOpen();
+};
+
 const App = () => {
   const [isRecording, setIsRecording] = useState(false); // Is microphone actively sending audio
   const [isSessionActive, setIsSessionActive] = useState(false); // Is the overall session (WS + mic) active
@@ -1093,9 +1102,19 @@ const App = () => {
         audioBufferManagerRef.current.measureGlassToGlassLatency(data.timestamp);
       }
 
+      // Validate WebSocket readiness before sending
+      if (!isWebSocketReady(socketRef.current, networkResilienceManagerRef.current)) {
+        addLogEntry("error", "WebSocket not ready for audio transmission - circuit breaker or connection issue");
+        return;
+      }
+
       // Send via network resilience manager
       if (networkResilienceManagerRef.current) {
-        networkResilienceManagerRef.current.sendData(data.audioData);
+        try {
+          networkResilienceManagerRef.current.sendData(data.audioData);
+        } catch (error) {
+          addLogEntry("error", `Audio transmission failed: ${error.message}`);
+        }
       } else {
         // Fallback to old method
         sendAudioChunkWithBackpressure(data.audioData);
@@ -1458,9 +1477,22 @@ const App = () => {
       );
       socketRef.current.binaryType = "arraybuffer";
 
+      // CRITICAL FIX 1: Assign WebSocket to network resilience manager IMMEDIATELY
+      // This prevents race conditions between audio processing and WebSocket readiness
+      if (networkResilienceManagerRef.current) {
+        networkResilienceManagerRef.current.setWebSocket(socketRef.current);
+        addLogEntry("ws", "WebSocket assigned to network resilience manager immediately after creation");
+      }
+
       socketRef.current.onopen = () => {
         setWebSocketStatus("Open");
         addLogEntry("ws", `WebSocket Connected (Lang: ${language}).`);
+        
+        // CRITICAL FIX 2: Reset circuit breaker on successful connection
+        if (networkResilienceManagerRef.current?.audioCircuitBreaker) {
+          networkResilienceManagerRef.current.resetCircuitBreaker();
+          addLogEntry("ws", "Circuit breaker reset on successful WebSocket connection");
+        }
         
         // Generate unique connection ID for this WebSocket connection
         const connectionId = `ws-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
@@ -1475,11 +1507,6 @@ const App = () => {
         // Check if audio chain is ready and send unified signal
         if (playbackAudioContextRef.current && playbackAudioContextRef.current.state === "running") {
           sendAudioReadySignal(playbackAudioContextRef.current, socketRef.current, addLogEntry, connectionSignalTracker, "websocket-onopen");
-        }
-        
-        // Connect WebSocket to network resilience manager
-        if (networkResilienceManagerRef.current) {
-          networkResilienceManagerRef.current.setWebSocket(socketRef.current);
         }
         
         if (isSessionActiveRef.current) {
@@ -1646,6 +1673,12 @@ const App = () => {
         console.error("WebSocket Error:", error);
         setWebSocketStatus("Error");
         addLogEntry("error", `WebSocket error. Details in console.`);
+        
+        // CRITICAL FIX 3: Handle circuit breaker on WebSocket errors
+        if (networkResilienceManagerRef.current?.audioCircuitBreaker) {
+          addLogEntry("ws", "WebSocket error - circuit breaker may open for protection");
+        }
+        
         if (isSessionActiveRef.current) {
           addLogEntry(
             "session_flow",
