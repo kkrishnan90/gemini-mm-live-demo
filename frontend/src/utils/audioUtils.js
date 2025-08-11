@@ -691,3 +691,77 @@ export default {
   memoryManager,
   performanceMonitor
 };
+
+// Helper function to wrap raw PCM data in a WAV header
+export const createWavFile = (pcmData) => {
+  const numChannels = 1;
+  const sampleRate = 24000; // Corresponds to OUTPUT_SAMPLE_RATE
+  const bitsPerSample = 16;
+  const pcmDataLength = pcmData.byteLength;
+  const headerLength = 44;
+  const wavFileLength = pcmDataLength + headerLength;
+  const buffer = new ArrayBuffer(wavFileLength);
+  const view = new DataView(buffer);
+
+  const writeString = (view, offset, string) => {
+    for (let i = 0; i < string.length; i++) {
+      view.setUint8(offset + i, string.charCodeAt(i));
+    }
+  };
+
+  // RIFF chunk descriptor
+  writeString(view, 0, 'RIFF');
+  view.setUint32(4, wavFileLength - 8, true); // ChunkSize
+  writeString(view, 8, 'WAVE');
+
+  // fmt sub-chunk
+  writeString(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); // Subchunk1Size (16 for PCM)
+  view.setUint16(20, 1, true); // AudioFormat (1 for PCM)
+  view.setUint16(22, numChannels, true); // NumChannels
+  view.setUint32(24, sampleRate, true); // SampleRate
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  view.setUint32(28, byteRate, true); // ByteRate
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  view.setUint16(32, blockAlign, true); // BlockAlign
+  view.setUint16(34, bitsPerSample, true); // BitsPerSample
+
+  // data sub-chunk
+  writeString(view, 36, 'data');
+  view.setUint32(40, pcmDataLength, true); // Subchunk2Size
+
+  // Copy PCM data
+  const pcmBytes = new Uint8Array(pcmData);
+  const wavBytes = new Uint8Array(buffer);
+  wavBytes.set(pcmBytes, headerLength);
+
+  return buffer;
+};
+
+// Validate audio system health and recovery capability
+export const validateAudioSystemRecovery = (addLogEntry) => {
+  const issues = [];
+  
+  // Check WebRTC support
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    issues.push("WebRTC getUserMedia not supported");
+  }
+  
+  // Check AudioContext support
+  if (!window.AudioContext && !window.webkitAudioContext) {
+    issues.push("AudioContext not supported");
+  }
+  
+  // Check WebSocket support
+  if (!window.WebSocket) {
+    issues.push("WebSocket not supported");
+  }
+  
+  if (issues.length > 0) {
+    addLogEntry("error", `Audio system validation failed: ${issues.join(", ")}`);
+    return false;
+  }
+  
+  addLogEntry("audio", "Audio system recovery validation passed");
+  return true;
+};

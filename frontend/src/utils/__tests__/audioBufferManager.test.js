@@ -9,19 +9,19 @@
  * - Performance optimization
  */
 
-import AudioBufferManager from './audioBufferManager.js';
+import AudioBufferManager from '../audioBufferManager.js';
 import { 
   AudioMemoryManager, 
   AudioCircuitBreaker, 
   AudioConverter,
   BrowserCompatibility,
   AudioPerformanceMonitor 
-} from './audioUtils.js';
+} from '../audioUtils.js';
 import { 
   WebSocketBackpressureManager,
   NetworkQualityMonitor,
   NetworkResilienceManager 
-} from './networkResilienceManager.js';
+} from '../networkResilienceManager.js';
 
 // Mock AudioContext for testing
 class MockAudioContext {
