@@ -16,7 +16,6 @@ import { debugLog } from '../config/debug';
 
 export const useSession = () => {
   const { messages, addLogEntry, setMessages } = useAppLogger();
-  addLogEntry("debug", "useSession hook executed");
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState(LANGUAGES[0].code);
   const [textInputValue, setTextInputValue] = useState("");
@@ -41,6 +40,9 @@ export const useSession = () => {
     failedTransmissions: 0,
     dropouts: 0,
   });
+
+  // Create a ref to store the reset function that will be set later
+  const resetAudioTrackingStateRef = useRef(null);
 
   const stopSystemAudioPlayback = useCallback(() => {
     if (currentAudioSourceRef.current) {
@@ -67,6 +69,11 @@ export const useSession = () => {
     isPlaybackStartedRef.current = false;
     adaptiveJitterBufferSize.current = JITTER_BUFFER_MIN_FILL;
     nextStartTimeRef.current = 0;
+    
+    // Reset audio tracking state to prevent truncation issues
+    if (resetAudioTrackingStateRef.current) {
+      resetAudioTrackingStateRef.current();
+    }
   }, [addLogEntry]);
 
   const checkWebSocketBackpressure = useCallback(() => {
@@ -252,6 +259,7 @@ export const useSession = () => {
     connectWebSocket,
     setTranscriptionMessages,
     isWebSocketReady,
+    resetAudioTrackingState,
   } = useCommunication(
     addLogEntry,
     handleStartListeningWrapper,
@@ -278,6 +286,11 @@ export const useSession = () => {
   useEffect(() => {
     socketRef.current = communicationSocketRef.current;
   }, [communicationSocketRef]);
+
+  // Set the reset function ref after communication hook is initialized
+  useEffect(() => {
+    resetAudioTrackingStateRef.current = resetAudioTrackingState;
+  }, [resetAudioTrackingState]);
 
   // This wrapper is needed to break the circular dependency between hooks.
   function handleStartListeningWrapper(isResuming) {
