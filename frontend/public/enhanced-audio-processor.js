@@ -656,7 +656,7 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
               audioData: int16PCM.buffer,
               sampleRate: this.config.sampleRate,
               channelCount: this.config.channelCount,
-              hasActivity: vadResult.isSpeechActive,
+              hasActivity: vadResult?.isSpeechActive ?? false,
               latency: latency,
               timestamp: inputTimestamp
             }
