@@ -45,6 +45,7 @@ export class ScriptProcessorFallback {
 
     // VAD configuration
     this.vadConfig = {
+      enabled: true, // Can be disabled when Gemini native VAD is used
       threshold: 0.04,
       minSpeechFrames: 3,
       minSilenceFrames: 10,
@@ -72,6 +73,11 @@ export class ScriptProcessorFallback {
 
     // Event handlers
     this.eventHandlers = new Map();
+
+    // Initialize VAD configuration if enableVAD is specified
+    if (options.enableVAD !== undefined) {
+      this.vadConfig.enabled = options.enableVAD;
+    }
 
     // Setup audio processing
     this.setupAudioProcessing();
@@ -135,16 +141,19 @@ export class ScriptProcessorFallback {
     // Apply noise suppression
     const processedSamples = this.applyNoiseSuppression(inputData);
 
-    // Voice activity detection
-    const vadResult = this.detectVoiceActivity(processedSamples);
+    // Voice activity detection (only if enabled)
+    let vadResult = null;
+    if (this.vadConfig.enabled) {
+      vadResult = this.detectVoiceActivity(processedSamples);
 
-    // Barge-in detection
-    if (vadResult.isSpeechActive && this.isSystemPlaying) {
-      this.emitEvent("bargeInDetected", {
-        energy: vadResult.energy,
-        threshold: vadResult.adaptiveThreshold,
-        timestamp: inputTimestamp,
-      });
+      // Barge-in detection
+      if (vadResult.isSpeechActive && this.isSystemPlaying) {
+        this.emitEvent("bargeInDetected", {
+          energy: vadResult.energy,
+          threshold: vadResult.adaptiveThreshold,
+          timestamp: inputTimestamp,
+        });
+      }
     }
 
     // Buffer the audio data
@@ -305,6 +314,7 @@ export class ScriptProcessorFallback {
         errorCount: this.errorCount,
       },
       vad: {
+        enabled: this.vadConfig.enabled,
         isSpeechActive: this.vadState.isSpeechActive,
         threshold: this.vadConfig.threshold,
       },
@@ -357,6 +367,10 @@ export class ScriptProcessorFallback {
     if (config.vadThreshold !== undefined) {
       this.vadConfig.threshold = config.vadThreshold;
     }
+  }
+
+  updateVADConfig(config) {
+    Object.assign(this.vadConfig, config);
   }
 
   /**
@@ -593,6 +607,11 @@ class AudioWorkletWrapper {
     // Event handlers
     this.eventHandlers = new Map();
 
+    // Initialize VAD configuration if enableVAD is specified
+    if (options.enableVAD !== undefined) {
+      this.updateVADConfig({ enabled: options.enableVAD });
+    }
+
     // Setup message handling
     this.workletNode.port.onmessage = (event) => {
       const { type, data } = event.data;
@@ -665,6 +684,13 @@ class AudioWorkletWrapper {
   updateConfig(config) {
     this.workletNode.port.postMessage({
       type: "UPDATE_CONFIG",
+      data: config,
+    });
+  }
+
+  updateVADConfig(config) {
+    this.workletNode.port.postMessage({
+      type: "SET_VAD_CONFIG",
       data: config,
     });
   }

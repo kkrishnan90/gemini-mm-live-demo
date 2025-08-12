@@ -234,6 +234,7 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
     
     // VAD and barge-in detection
     this.vadConfig = {
+      enabled: true, // Can be disabled when Gemini native VAD is used
       threshold: 0.04,
       minSpeechFrames: 3,
       minSilenceFrames: 10,
@@ -580,6 +581,7 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
           errorCount: this.errorCount
         },
         vad: {
+          enabled: this.vadConfig.enabled,
           isSpeechActive: this.vadState.isSpeechActive,
           threshold: this.vadConfig.threshold
         },
@@ -615,19 +617,22 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
       // Apply noise suppression
       const processedSamples = this.applyNoiseSuppression(inputSamples);
       
-      // Voice activity detection
-      const vadResult = this.detectVoiceActivity(processedSamples);
-      
-      // Barge-in detection
-      if (vadResult.isSpeechActive && this.isSystemPlaying) {
-        this.port.postMessage({
-          type: 'BARGE_IN_DETECTED',
-          data: {
-            energy: vadResult.energy,
-            threshold: vadResult.adaptiveThreshold,
-            timestamp: inputTimestamp
-          }
-        });
+      // Voice activity detection (only if enabled)
+      let vadResult = null;
+      if (this.vadConfig.enabled) {
+        vadResult = this.detectVoiceActivity(processedSamples);
+        
+        // Barge-in detection
+        if (vadResult.isSpeechActive && this.isSystemPlaying) {
+          this.port.postMessage({
+            type: 'BARGE_IN_DETECTED',
+            data: {
+              energy: vadResult.energy,
+              threshold: vadResult.adaptiveThreshold,
+              timestamp: inputTimestamp
+            }
+          });
+        }
       }
       
       // Buffer the audio samples
