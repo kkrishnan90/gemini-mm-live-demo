@@ -638,9 +638,9 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
       // Buffer the audio samples
       this.inputBuffer.write(processedSamples);
       
-      // Check if we have enough data to send
-      const bufferFillLevel = this.inputBuffer.getFillLevel();
-      if (bufferFillLevel >= 0.5 || this.inputBuffer.count >= this.config.bufferSize) {
+      // Always send available audio data for Gemini VAD (no buffer fill level gating)
+      // This ensures continuous audio stream for Voice Activity Detection
+      if (this.inputBuffer.count > 0) {
         const audioChunk = new Float32Array(this.config.bufferSize);
         const samplesRead = this.inputBuffer.read(audioChunk);
         

@@ -174,8 +174,9 @@ export class ScriptProcessorFallback {
 
     this.inputBufferIndex += dataToCopy;
 
-    // Check if buffer is ready to send
-    if (this.inputBufferIndex >= this.options.bufferSize) {
+    // Always send audio data for continuous stream (required for Gemini VAD)
+    // Send when we have any data, not just when buffer is full
+    if (this.inputBufferIndex > 0) {
       const audioChunk = this.inputBuffer.subarray(0, this.inputBufferIndex);
       const int16PCM = AudioConverter.float32ToInt16(audioChunk);
 
