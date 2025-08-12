@@ -85,7 +85,7 @@ class GeminiClientManager:
                 automatic_activity_detection=types.AutomaticActivityDetection(
                     disabled=settings.DISABLE_VAD,
                     start_of_speech_sensitivity=types.StartSensitivity.START_SENSITIVITY_HIGH,
-                    end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_MEDIUM,
+                    end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_HIGH,
                     prefix_padding_ms=50,
                     silence_duration_ms=1200,
                 )
