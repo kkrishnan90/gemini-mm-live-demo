@@ -280,13 +280,15 @@ export const useAudio = (
 
       // Create Enhanced Audio Processor
       if (!audioProcessorRef.current) {
+        const frontendVadEnabled = process.env.REACT_APP_DISABLE_VAD === "true";
         addLogEntry("debug", "Creating enhanced audio processor...");
+        addLogEntry("info", `Frontend VAD: ${frontendVadEnabled ? 'ENABLED' : 'DISABLED (using Gemini native VAD)'}`);
         audioProcessorRef.current = await createAudioProcessor(
           localAudioContextRef.current,
           {
             sampleRate: INPUT_SAMPLE_RATE,
             bufferSize: MIC_BUFFER_SIZE,
-            enableVAD: true,
+            enableVAD: process.env.REACT_APP_DISABLE_VAD === "true",
             vadSensitivity: 0.3,
             enableEchoCancellation: true,
             enableNoiseSuppression: true,
