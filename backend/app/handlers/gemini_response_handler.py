@@ -1,0 +1,172 @@
+"""
+Handles responses from Gemini Live API and forwards to client.
+"""
+
+import asyncio
+import uuid
+import traceback
+from typing import Dict, Any, Callable
+
+from quart import websocket
+from google.genai import types
+from websockets.exceptions import ConnectionClosedOK
+
+from app.core.config import settings
+from app.utils.audio import AudioBuffer, AudioMetadata
+from app.handlers.audio_processor import AudioProcessor
+from app.handlers.transcription_processor import TranscriptionProcessor
+from app.handlers.tool_call_processor import ToolCallProcessor
+
+
+class GeminiResponseHandler:
+    """Handles responses from Gemini Live API."""
+    
+    def __init__(self, session, session_state: Dict[str, Any], 
+                 available_functions: Dict[str, Callable]):
+        self.session = session
+        self.session_state = session_state
+        self.available_functions = available_functions
+        
+        # Initialize processors
+        self.audio_processor = AudioProcessor(session_state)
+        self.transcription_processor = TranscriptionProcessor(session_state)
+        self.tool_processor = ToolCallProcessor(session, available_functions)
+    
+    async def handle_gemini_responses(self):
+        """Main Gemini response handling loop."""
+        try:
+            while self.session_state['active_processing']:
+                had_activity = False
+                
+                async for response in self.session.receive():
+                    had_activity = True
+                    if not self.session_state['active_processing']:
+                        break
+                    
+                    await self._process_response(response)
+                    
+                    if not self.session_state['active_processing']:
+                        break
+                
+                # Small delay if no activity
+                if not had_activity and self.session_state['active_processing']:
+                    await asyncio.sleep(0.1)
+                    
+        except ConnectionClosedOK:
+            print("INFO: Connection to client closed.")
+            self.session_state['active_processing'] = False
+        finally:
+            self.session_state['active_processing'] = False
+    
+    async def _process_response(self, response):
+        """Process individual response from Gemini."""
+        try:
+            # Handle session updates
+            await self._handle_session_updates(response)
+            
+            # Handle audio data
+            if response.data is not None:
+                await self.audio_processor.process_audio_response(response.data)
+            
+            # Handle server content
+            elif response.server_content:
+                await self._handle_server_content(response.server_content)
+            
+            # Handle tool calls
+            elif response.tool_call:
+                await self.tool_processor.process_tool_call(response.tool_call)
+            
+            # Handle errors
+            elif hasattr(response, 'error') and response.error:
+                await self._handle_error(response.error)
+                
+        except Exception as e:
+            print(f"Backend: Error processing response: {e}")
+            traceback.print_exc()
+            self.session_state['active_processing'] = False
+    
+    async def _handle_session_updates(self, response):
+        """Handle session resumption updates."""
+        if response.session_resumption_update:
+            update = response.session_resumption_update
+            if update.resumable and update.new_handle:
+                self.session_state['current_session_handle'] = update.new_handle
+        
+        if hasattr(response, 'session_handle') and response.session_handle:
+            new_handle = response.session_handle
+            if new_handle != self.session_state['current_session_handle']:
+                self.session_state['current_session_handle'] = new_handle
+    
+    async def _handle_server_content(self, server_content):
+        """Handle server content responses."""
+        # Handle interruption
+        if server_content.interrupted:
+            await self._handle_interruption()
+        
+        # Handle transcriptions
+        await self.transcription_processor.process_transcriptions(server_content)
+        
+        # Handle unhandled content
+        await self._handle_unhandled_content(server_content)
+    
+    async def _handle_interruption(self):
+        """Handle Gemini interruption signal."""
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        print("Backend: Gemini server sent INTERRUPTED signal.")
+        print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
+        
+        try:
+            await websocket.send_json({"type": "interrupt_playback"})
+        except Exception as send_exc:
+            print(f"Backend: Error sending interrupt_playback signal: {send_exc}")
+            self.session_state['active_processing'] = False
+    
+    async def _handle_unhandled_content(self, server_content):
+        """Handle unhandled server content."""
+        is_transcription_related = (
+            (hasattr(server_content, 'input_transcription') and server_content.input_transcription) or
+            (hasattr(server_content, 'output_transcription') and server_content.output_transcription)
+        )
+        
+        is_control_signal = (
+            (hasattr(server_content, 'generation_complete') and server_content.generation_complete) or
+            (hasattr(server_content, 'turn_complete') and server_content.turn_complete) or
+            (hasattr(server_content, 'interrupted') and server_content.interrupted)
+        )
+        
+        if not is_transcription_related and not is_control_signal:
+            unhandled_text = self._extract_unhandled_text(server_content)
+            if unhandled_text:
+                print(f"Backend: Received unhandled server_content text: {unhandled_text}")
+            elif not hasattr(server_content, 'tool_call'):
+                print(f"Backend: Received server_content without known parts: {server_content}")
+    
+    def _extract_unhandled_text(self, server_content) -> str:
+        """Extract unhandled text from server content."""
+        unhandled_text = None
+        
+        if hasattr(server_content, 'text') and server_content.text:
+            unhandled_text = server_content.text
+        elif (hasattr(server_content, 'model_turn') and server_content.model_turn and 
+              hasattr(server_content.model_turn, 'parts')):
+            for part in server_content.model_turn.parts:
+                if part.text:
+                    unhandled_text = (unhandled_text + " " if unhandled_text else "") + part.text
+        elif hasattr(server_content, 'output_text') and server_content.output_text:
+            unhandled_text = server_content.output_text
+        
+        return unhandled_text
+    
+    async def _handle_error(self, error):
+        """Handle error responses from Gemini."""
+        error_details = error
+        if hasattr(error, 'message'):
+            error_details = error.message
+        
+        print(f"Backend: Gemini Error in response: {error_details}")
+        
+        try:
+            await websocket.send(f"[ERROR_FROM_GEMINI]: {str(error_details)}")
+        except Exception as send_exc:
+            print(f"Backend: Error sending Gemini error to client: {send_exc}")
+            self.session_state['active_processing'] = False

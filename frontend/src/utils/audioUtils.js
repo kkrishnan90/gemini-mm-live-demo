@@ -9,6 +9,8 @@
  * - Browser compatibility utilities
  */
 
+import { debugWarn, debugError } from '../config/debug';
+
 /**
  * Memory Manager for audio processing
  */
@@ -125,7 +127,7 @@ export class AudioMemoryManager {
     const currentMB = this.memoryUsage.currentBytes / (1024 * 1024);
 
     if (currentMB > memoryLimitMB) {
-      console.warn(`Audio memory usage high: ${currentMB.toFixed(2)}MB`);
+      debugWarn(`Audio memory usage high: ${currentMB.toFixed(2)}MB`);
       this.forceCleanup();
     }
   }
@@ -587,7 +589,7 @@ export class AudioErrorRecovery {
           this.onRecovery({ context, attempt: attempt + 1 });
           return true;
         } catch (error) {
-          console.warn(
+          debugWarn(
             `Recovery attempt ${attempt + 1} failed for ${context}:`,
             error
           );
@@ -727,14 +729,14 @@ export const createWavFile = (pcmData) => {
 
     // Validate input data
     if (!pcmData || pcmData.byteLength === 0) {
-      console.error("createWavFile: Invalid or empty PCM data");
+      debugError("createWavFile: Invalid or empty PCM data");
       return null;
     }
 
     // Ensure PCM data length is even (16-bit samples)
     const pcmDataLength = pcmData.byteLength;
     if (pcmDataLength % 2 !== 0) {
-      console.warn(
+      debugWarn(
         "createWavFile: PCM data length is odd, truncating last byte"
       );
     }
@@ -778,7 +780,7 @@ export const createWavFile = (pcmData) => {
 
     return buffer;
   } catch (error) {
-    console.error("createWavFile: Error creating WAV file:", error);
+    debugError("createWavFile: Error creating WAV file:", error);
     return null;
   }
 };

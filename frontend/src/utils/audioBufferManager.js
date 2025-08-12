@@ -10,6 +10,8 @@
  * - Latency optimization
  */
 
+import { debugError } from '../config/debug';
+
 /**
  * Adaptive Ring Buffer implementation for efficient audio streaming
  */
@@ -761,7 +763,7 @@ export class AudioBufferManager {
         try {
           handler(data);
         } catch (error) {
-          console.error(`Error in event handler for ${event}:`, error);
+          debugError(`Error in event handler for ${event}:`, error);
         }
       });
     }

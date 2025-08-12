@@ -12,6 +12,7 @@ import {
   MAX_AUDIO_QUEUE_SIZE,
 } from "../utils/constants";
 import { generateUniqueId } from '../utils/helpers';
+import { debugLog } from '../config/debug';
 
 export const useSession = () => {
   const { messages, addLogEntry, setMessages } = useAppLogger();
@@ -284,7 +285,7 @@ export const useSession = () => {
   }
 
   const handleToggleSession = useCallback(async () => {
-    console.log("🔥 PLAY BUTTON CLICKED - handleToggleSession called!");
+    debugLog("🔥 PLAY BUTTON CLICKED - handleToggleSession called!");
     addLogEntry("debug", "🔥 PLAY BUTTON CLICKED - handleToggleSession called!");
     
     if (isSessionActiveRef.current) {
@@ -297,21 +298,21 @@ export const useSession = () => {
       setIsSessionActive(false);
     } else {
       addLogEntry("session_control", "User requested to START session.");
-      console.log("🚀 Starting new session...");
+      debugLog("🚀 Starting new session...");
       
       // --- AUDIO CONTEXT FIX ---
       // This is a user gesture, so we can resume the audio context here.
       // This is critical for browsers that block audio from starting without interaction.
-      console.log("🎵 Resuming audio context...");
+      debugLog("🎵 Resuming audio context...");
       await resumeAudioContext();
       
       const currentLangName = LANGUAGES.find((l) => l.code === selectedLanguage)?.name || selectedLanguage;
       addLogEntry("session_flow", `Attempting to connect WebSocket for session start (Language: ${currentLangName}).`);
       
-      console.log("✅ Setting session active...");
+      debugLog("✅ Setting session active...");
       setIsSessionActive(true);
       
-      console.log("🌐 Connecting WebSocket...");
+      debugLog("🌐 Connecting WebSocket...");
       connectWebSocket(selectedLanguage);
       addLogEntry("session_status", "Session PENDING (WebSocket connecting, Mic to start on WS open).");
     }

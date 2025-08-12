@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { BACKEND_HOST } from '../utils/constants';
 import { generateUniqueId } from '../utils/helpers';
+import { debugLog, debugError } from '../config/debug';
 
 export const useToolLogs = (addLogEntry, setMessages) => {
   const [isLoading, setIsLoading] = useState(false);
@@ -46,7 +47,7 @@ export const useToolLogs = (addLogEntry, setMessages) => {
           (logEntry.status &&
             String(logEntry.status).toLowerCase().includes("error")) ||
           errorKeywords.some((keyword) => contentLowerCase.includes(keyword));
-        console.log(
+        debugLog(
           `%c[Tool Call ${isError ? "ERROR" : "Log"}] ${ 
             logEntry.timestamp
           }: ${logContentString}`,
@@ -71,7 +72,7 @@ export const useToolLogs = (addLogEntry, setMessages) => {
       });
       setToolCallLogs((prevLogs) => [...prevLogs, ...newLogEntries]);
     } catch (error) {
-      console.error("Failed to fetch tool call logs:", error);
+      debugError("Failed to fetch tool call logs:", error);
       addLogEntry("error", `Failed to fetch tool call logs: ${error.message}`);
     } finally {
       setIsLoading(false);

@@ -7,6 +7,7 @@
  */
 
 import { AudioConverter, AudioUtils, memoryManager } from "./audioUtils.js";
+import { debugLog, debugWarn, debugError } from "../config/debug";
 
 /**
  * ScriptProcessor-based Audio Processor
@@ -182,7 +183,7 @@ export class ScriptProcessorFallback {
 
     // Handle overflow
     if (dataToCopy < audioData.length) {
-      console.warn("ScriptProcessor buffer overflow, dropping samples");
+      debugWarn("ScriptProcessor buffer overflow, dropping samples");
       this.performance.glitches++;
     }
   }
@@ -338,7 +339,7 @@ export class ScriptProcessorFallback {
         try {
           handler(data);
         } catch (error) {
-          console.error(
+          debugError(
             `Error in ScriptProcessor event handler for ${event}:`,
             error
           );
@@ -443,7 +444,7 @@ export class ScriptProcessorFallback {
     } catch (error) {
       // Already connected, ignore error
       if (!error.message.includes('already connected')) {
-        console.warn('ScriptProcessor connection warning:', error.message);
+        debugWarn('ScriptProcessor connection warning:', error.message);
       }
     }
     return this;
@@ -514,7 +515,7 @@ export class ScriptProcessorFallback {
       try {
         cleanup();
       } catch (error) {
-        console.error("Error during ScriptProcessor cleanup:", error);
+        debugError("Error during ScriptProcessor cleanup:", error);
       }
     });
 
@@ -544,40 +545,40 @@ export async function createAudioProcessor(audioContext, options = {}) {
   if (supportsAudioWorklet) {
     try {
       // Try to load enhanced AudioWorklet
-      console.log("Attempting to load enhanced AudioWorklet processor...");
+      debugLog("Attempting to load enhanced AudioWorklet processor...");
       await audioContext.audioWorklet.addModule("/enhanced-audio-processor.js");
-      console.log("Enhanced AudioWorklet processor loaded successfully");
+      debugLog("Enhanced AudioWorklet processor loaded successfully");
 
       const workletNode = new AudioWorkletNode(
         audioContext,
         "enhanced-audio-processor"
       );
-      console.log("AudioWorklet node created successfully");
+      debugLog("AudioWorklet node created successfully");
 
       // Wrap AudioWorklet in a compatible interface
       return new AudioWorkletWrapper(workletNode, options);
     } catch (error) {
-      console.warn(
+      debugWarn(
         "Failed to load AudioWorklet, falling back to ScriptProcessor:",
         error
       );
-      console.warn("Error details:", error.message);
+      debugWarn("Error details:", error.message);
 
       // Log specific error types for debugging
       if (error.name === "NotSupportedError") {
-        console.warn("AudioWorklet not supported in this context");
+        debugWarn("AudioWorklet not supported in this context");
       } else if (error.name === "NetworkError") {
-        console.warn("Failed to fetch AudioWorklet module");
+        debugWarn("Failed to fetch AudioWorklet module");
       } else if (error.name === "SyntaxError") {
-        console.warn("AudioWorklet module has syntax errors");
+        debugWarn("AudioWorklet module has syntax errors");
       }
     }
   } else {
-    console.log("AudioWorklet not supported in this browser");
+    debugLog("AudioWorklet not supported in this browser");
   }
 
   // Fallback to ScriptProcessor
-  console.log("Using ScriptProcessor fallback for audio processing");
+  debugLog("Using ScriptProcessor fallback for audio processing");
   return new ScriptProcessorFallback(audioContext, options);
 }
 
@@ -618,7 +619,7 @@ class AudioWorkletWrapper {
           break;
 
         default:
-          console.log("AudioWorklet message:", type, data);
+          debugLog("AudioWorklet message:", type, data);
       }
     };
   }
@@ -649,7 +650,7 @@ class AudioWorkletWrapper {
         try {
           handler(data);
         } catch (error) {
-          console.error(
+          debugError(
             `Error in AudioWorklet event handler for ${event}:`,
             error
           );

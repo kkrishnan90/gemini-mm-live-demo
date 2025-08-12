@@ -11,6 +11,23 @@
  * - Mobile optimization
  */
 
+// Debug configuration for AudioWorklet context
+const DEBUG_ENABLED = globalThis.localStorage?.getItem('debug') === 'true' || 
+                     globalThis.location?.search.includes('debug=true') || 
+                     false;
+
+const debugLog = (...args) => {
+  if (DEBUG_ENABLED) {
+    console.log('[WORKLET]', ...args);
+  }
+};
+
+const debugWarn = (...args) => {
+  if (DEBUG_ENABLED) {
+    console.warn('[WORKLET]', ...args);
+  }
+};
+
 /**
  * Adaptive Ring Buffer for AudioWorklet
  */
@@ -351,7 +368,7 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
           break;
           
         default:
-          console.warn('Unknown message type:', type);
+          debugWarn('Unknown message type:', type);
       }
     } catch (error) {
       this.handleError('message_handling', error);

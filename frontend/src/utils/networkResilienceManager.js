@@ -10,6 +10,7 @@
  */
 
 import { AudioCircuitBreaker } from './audioUtils.js';
+import { debugWarn, debugError } from '../config/debug';
 
 /**
  * WebSocket Backpressure Manager
@@ -361,7 +362,7 @@ export class WebSocketBackpressureManager {
         try {
           handler(data);
         } catch (error) {
-          console.error(`Error in backpressure manager event handler for ${event}:`, error);
+          debugError(`Error in backpressure manager event handler for ${event}:`, error);
         }
       });
     }
@@ -539,7 +540,7 @@ export class NetworkQualityMonitor {
       });
       
     } catch (error) {
-      console.warn('Network quality measurement failed:', error);
+      debugWarn('Network quality measurement failed:', error);
       this.recordFailedMeasurement();
     }
   }
@@ -740,7 +741,7 @@ export class NetworkQualityMonitor {
         try {
           handler(data);
         } catch (error) {
-          console.error(`Error in network quality monitor event handler for ${event}:`, error);
+          debugError(`Error in network quality monitor event handler for ${event}:`, error);
         }
       });
     }
@@ -1136,7 +1137,7 @@ export class NetworkResilienceManager {
         try {
           handler(data);
         } catch (error) {
-          console.error(`Error in network resilience manager event handler for ${event}:`, error);
+          debugError(`Error in network resilience manager event handler for ${event}:`, error);
         }
       });
     }

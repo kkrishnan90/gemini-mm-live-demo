@@ -4,6 +4,7 @@ import { createAudioProcessor } from "../utils/scriptProcessorFallback.js";
 import { NetworkResilienceManager } from "../utils/networkResilienceManager.js";
 import { validateAudioSystemRecovery } from "../utils/audioUtils.js";
 import { guaranteedAudioTransmission } from "../utils/webSocketUtils";
+import { debugLog, debugError } from "../config/debug";
 import {
   INPUT_SAMPLE_RATE,
   OUTPUT_SAMPLE_RATE,
@@ -536,7 +537,7 @@ export const useAudio = (
         addLogEntry("system", "Enhanced audio system initialized successfully");
       } catch (error) {
         addLogEntry("error", "CRITICAL: Audio system initialization failed");
-        console.error("Audio system initialization error:", error);
+        debugError("Audio system initialization error:", error);
       }
     };
     initializeAudioSystem();
@@ -548,24 +549,24 @@ export const useAudio = (
   const handleStartListening = useCallback(
     async (isResuming = false) => {
       addLogEntry("debug", `handleStartListening called with isResuming=${isResuming}, isSessionActive=${isSessionActive}, isRecording=${isRecordingRef.current}`);
-      console.log(`🎤 handleStartListening: isSessionActive=${isSessionActive}, isRecording=${isRecordingRef.current}`);
+      debugLog(`🎤 handleStartListening: isSessionActive=${isSessionActive}, isRecording=${isRecordingRef.current}`);
       
       // Use ref to avoid race condition - check both state and ref
       const sessionIsReallyActive = isSessionActiveRef?.current || isSessionActive;
-      console.log(`🎤 Session check: state=${isSessionActive}, ref=${isSessionActiveRef?.current}, final=${sessionIsReallyActive}`);
+      debugLog(`🎤 Session check: state=${isSessionActive}, ref=${isSessionActiveRef?.current}, final=${sessionIsReallyActive}`);
       
       if (!sessionIsReallyActive) {
-        console.log("🎤 EARLY RETURN: Session not active");
+        debugLog("🎤 EARLY RETURN: Session not active");
         addLogEntry("warning", "Start listening called but session not active.");
         return;
       }
       if (isRecordingRef.current) {
-        console.log("🎤 EARLY RETURN: Already listening");
+        debugLog("🎤 EARLY RETURN: Already listening");
         addLogEntry("info", "Already listening.");
         return;
       }
       
-      console.log("🎤 Proceeding with microphone initialization...");
+      debugLog("🎤 Proceeding with microphone initialization...");
       try {
         if (!isResuming) {
           if (!audioProcessorRef.current) {
@@ -611,7 +612,7 @@ export const useAudio = (
         }
       } catch (error) {
         addLogEntry("error", `Could not start microphone: ${error.message}`);
-        console.error("Error starting microphone:", error);
+        debugError("Error starting microphone:", error);
         
         // More specific error handling
         if (error.name === 'NotAllowedError') {
