@@ -47,17 +47,18 @@ class WebSocketHandler:
         connection_start_time = asyncio.get_event_loop().time()
         print(f"🌐 New WebSocket connection accepted")
         
-        # Initialize connection state
+        # Initialize connection state and a queue for graceful tool result delivery
         session_state = self._initialize_session_state(connection_start_time)
+        tool_results_queue = asyncio.Queue()
         
         try:
             async with self._create_gemini_session() as session:
                 print("✅ Successfully connected to Gemini Live API")
                 
-                # Create handlers
+                # Create handlers, passing the queue to the response handler
                 client_handler = ClientInputHandler(session, session_state)
                 gemini_handler = GeminiResponseHandler(
-                    session, session_state, self.available_functions
+                    session, session_state, self.available_functions, tool_results_queue
                 )
                 
                 # Create and run tasks

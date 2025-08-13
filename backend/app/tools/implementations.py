@@ -38,217 +38,146 @@ def _log_tool_event(
     print(json.dumps(log_payload))
 
 
-# Tool Function Implementations
+# --- Asynchronous Task Implementations ---
 
-async def NameCorrectionAgent(correction_type: str, fn: str, ln: str) -> dict:
-    """Processes name corrections for a booking.
-
-    This agent handles various types of name corrections, including spelling
-    corrections, name swaps, gender corrections, maiden name changes, and
-    title removals.
-
-    Args:
-        correction_type (str): The type of name correction to perform.
-            Supported values: "NAME_CORRECTION", "NAME_SWAP", "GENDER_SWAP",
-            "MAIDEN_NAME_CHANGE", "REMOVE_TITLE".
-        fn (str): The first name of the passenger.
-        ln (str): The last name of the passenger.
-
-    Returns:
-        dict: A dictionary containing the status of the operation and a
-              confirmation message.
-    """
+async def _name_correction_later(queue, correction_type: str, fn: str, ln: str):
     await asyncio.sleep(20)
     tool_name = "NameCorrectionAgent"
     params_sent = {"correction_type": correction_type, "fn": fn, "ln": ln}
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    # Mock implementation
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
     response = {
         "status": "SUCCESS",
         "message": f"Name correction of type {correction_type} for {fn} {ln} has been processed.",
     }
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-    return response
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The name correction for {fn} {ln} is complete. Details: {json.dumps(response)}. Please inform the user."
+            }
+        ],
+    }
+    await queue.put(system_message)
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
 
-
-async def SpecialClaimAgent(claim_type: str) -> dict:
-    """Files a special claim for a flight booking.
-
-    This agent helps users file claims for various flight-related issues and
-    disruptions.
-
-    Args:
-        claim_type (str): The type of special claim to file. Supported
-            values: "FLIGHT_NOT_OPERATIONAL", "MEDICAL_EMERGENCY",
-            "TICKET_CANCELLED_WITH_AIRLINE".
-
-    Returns:
-        dict: A dictionary containing the status of the operation and a
-              confirmation message.
-    """
+async def _special_claim_later(queue, claim_type: str):
     await asyncio.sleep(20)
     tool_name = "SpecialClaimAgent"
     params_sent = {"claim_type": claim_type}
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    # Mock implementation
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
     response = {
         "status": "SUCCESS",
         "message": f"Special claim of type {claim_type} has been filed.",
     }
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-    return response
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The special claim of type {claim_type} has been filed. Details: {json.dumps(response)}. Please inform the user."
+            }
+        ],
+    }
+    await queue.put(system_message)
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
 
-
-async def Enquiry_Tool() -> dict:
-    """Retrieves relevant documentation for a user's query.
-
-    This tool is used to fetch helpful documents and information in response
-    to a user's enquiry.
-
-    Returns:
-        dict: A dictionary containing the status of the operation and a
-              mock response message.
-    """
+async def _enquiry_tool_later(queue):
     await asyncio.sleep(20)
     tool_name = "Enquiry_Tool"
     params_sent = {}
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    # Mock implementation
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
     response = {
         "status": "SUCCESS",
         "message": "This is a mock response to your enquiry.",
     }
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-    return response
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The enquiry has been resolved. Details: {json.dumps(response)}. Please inform the user."
+            }
+        ],
+    }
+    await queue.put(system_message)
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
 
-
-async def Eticket_Sender_Agent(booking_id_or_pnr: str) -> dict:
-    """Sends an e-ticket to the user for a given booking.
-
-    Args:
-        booking_id_or_pnr (str): The booking ID or PNR of the user's
-            itinerary.
-
-    Returns:
-        dict: A dictionary containing the status of the operation and a
-              confirmation message.
-    """
+async def _eticket_sender_later(queue, booking_id_or_pnr: str):
     await asyncio.sleep(20)
     tool_name = "Eticket_Sender_Agent"
     params_sent = {"booking_id_or_pnr": booking_id_or_pnr}
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    
-    # Use the actual implementation that validates booking existence
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
     response = send_eticket(booking_id_or_pnr)
-    
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-    return response
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The e-ticket for booking {booking_id_or_pnr} has been sent. Details: {json.dumps(response)}. Please inform the user."
+            }
+        ],
+    }
+    await queue.put(system_message)
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
 
-
-async def ObservabilityAgent(operation_type: str) -> dict:
-    """Tracks the refund status for a given booking ID.
-
-    Args:
-        operation_type (str): The type of operation for which to track the
-            refund status. Supported values: "CANCELLATION", "DATE_CHANGE".
-
-    Returns:
-        dict: A dictionary containing the status of the operation and a
-              confirmation message.
-    """
+async def _observability_agent_later(queue, operation_type: str):
     await asyncio.sleep(20)
     tool_name = "ObservabilityAgent"
     params_sent = {"operation_type": operation_type}
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    # Mock implementation
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
     response = {
         "status": "SUCCESS",
         "message": f"Refund status for {operation_type} is being tracked.",
     }
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-    return response
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The refund status for {operation_type} is now available. Details: {json.dumps(response)}. Please inform the user."
+            }
+        ],
+    }
+    await queue.put(system_message)
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
 
-
-async def DateChangeAgent(action: str, sector_info: list) -> dict:
-    """Quotes penalties or executes date change for an existing itinerary.
-
-    Args:
-        action (str): The action to perform. Supported values: "QUOTE",
-            "CONFIRM".
-        sector_info (list): A list of sectors/journeys to change, with their
-            new dates.
-
-    Returns:
-        dict: A dictionary containing the status of the operation and a
-              confirmation message.
-    """
+async def _date_change_agent_later(queue, action: str, sector_info: list):
     await asyncio.sleep(20)
     tool_name = "DateChangeAgent"
     params_sent = {"action": action, "sector_info": sector_info}
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    # Mock implementation
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
     response = {
         "status": "SUCCESS",
         "message": f"Date change action '{action}' has been processed for the provided sectors.",
     }
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-    return response
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The date change action '{action}' has been processed. Details: {json.dumps(response)}. Please inform the user."
+            }
+        ],
+    }
+    await queue.put(system_message)
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
 
-
-async def Connect_To_Human_Tool(
-    reason_of_invoke: str, frustration_score: str = None
-) -> dict:
-    """Connects the user to a human agent.
-
-    Args:
-        reason_of_invoke (str): The reason for invoking the tool. Supported
-            values: "FRUSTRATED", "UNABLE_TO_HELP".
-        frustration_score (str, optional): The user's frustration score on a
-            scale of 1 to 10. Defaults to None.
-
-    Returns:
-        dict: A dictionary containing the status of the operation and a
-              confirmation message.
-    """
+async def _connect_to_human_tool_later(queue, reason_of_invoke: str, frustration_score: str = None):
     await asyncio.sleep(20)
     tool_name = "Connect_To_Human_Tool"
     params_sent = {
         "reason_of_invoke": reason_of_invoke,
         "frustration_score": frustration_score,
     }
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    # Mock implementation
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
     response = {"status": "SUCCESS", "message": "Connecting you to a human agent..."}
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-    return response
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The connection to a human agent has been initiated. Details: {json.dumps(response)}. Please inform the user."
+            }
+        ],
+    }
+    await queue.put(system_message)
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
 
-
-async def Booking_Cancellation_Agent(
-    booking_id_or_pnr: str,
-    action: str,
-    cancel_scope: str = "NOT_MENTIONED",
-    otp: str = "",
-    partial_info: list = None,
-) -> dict:
-    """Quotes penalties or executes cancellations for an existing itinerary.
-
-    Args:
-        booking_id_or_pnr (str): The booking ID or PNR of the itinerary to cancel.
-        action (str): The action to perform. Supported values: "QUOTE",
-            "CONFIRM".
-        cancel_scope (str, optional): The scope of the cancellation.
-            Supported values: "NOT_MENTIONED", "FULL", "PARTIAL". Defaults to
-            "NOT_MENTIONED".
-        otp (str, optional): The One Time Password for confirmation. Defaults
-            to "".
-        partial_info (list, optional): A list of journeys and passengers to
-            cancel. Required only when `cancel_scope` is "PARTIAL". Defaults
-            to None.
-
-    Returns:
-        dict: A dictionary containing the status of the operation and a
-              confirmation message.
-    """
+async def _booking_cancellation_agent_later(queue, booking_id_or_pnr: str, action: str, cancel_scope: str, otp: str, partial_info: list):
     await asyncio.sleep(20)
     tool_name = "Booking_Cancellation_Agent"
     params_sent = {
@@ -258,40 +187,99 @@ async def Booking_Cancellation_Agent(
         "otp": otp,
         "partial_info": partial_info,
     }
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    
-    # Validate booking exists before proceeding
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
     validation = validate_booking_exists(booking_id_or_pnr)
     if not validation["is_valid"]:
         response = {
             "status": validation["status"],
             "message": validation["message"],
         }
-        _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-        return response
-    
-    # Booking exists, proceed with cancellation logic
-    booking = validation["booking"]
-    if action == "QUOTE":
-        response = {
-            "status": "SUCCESS",
-            "message": f"Cancellation quote for booking {booking_id_or_pnr}: Refund amount ₹{booking['total_cost'] * 0.8:.0f}, Penalty ₹{booking['total_cost'] * 0.2:.0f}",
-            "refund_amount": booking['total_cost'] * 0.8,
-            "penalty": booking['total_cost'] * 0.2,
-            "currency": booking['currency'],
-        }
-    else:  # CONFIRM
-        response = {
-            "status": "SUCCESS",
-            "message": f"Booking {booking_id_or_pnr} has been successfully cancelled. Refund will be processed in 5-7 business days.",
-            "booking_cancelled": True,
-        }
-    
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-    return response
+    else:
+        booking = validation["booking"]
+        if action == "QUOTE":
+            response = {
+                "status": "SUCCESS",
+                "message": f"Cancellation quote for booking {booking_id_or_pnr}: Refund amount ₹{booking['total_cost'] * 0.8:.0f}, Penalty ₹{booking['total_cost'] * 0.2:.0f}",
+                "refund_amount": booking['total_cost'] * 0.8,
+                "penalty": booking['total_cost'] * 0.2,
+                "currency": booking['currency'],
+            }
+        else:
+            response = {
+                "status": "SUCCESS",
+                "message": f"Booking {booking_id_or_pnr} has been successfully cancelled. Refund will be processed in 5-7 business days.",
+                "booking_cancelled": True,
+            }
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The booking cancellation action '{action}' has been processed. Details: {json.dumps(response)}. Please inform the user."
+            }
+        ],
+    }
+    await queue.put(system_message)
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
 
+async def _webcheckin_and_boarding_pass_agent_later(queue, booking_id_or_pnr: str, journeys: list):
+    await asyncio.sleep(20)
+    tool_name = "Webcheckin_And_Boarding_Pass_Agent"
+    params_sent = {"booking_id_or_pnr": booking_id_or_pnr, "journeys": journeys}
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
+    validation = validate_booking_exists(booking_id_or_pnr)
+    if not validation["is_valid"]:
+        response = {
+            "status": validation["status"],
+            "message": validation["message"],
+        }
+    else:
+        booking = validation["booking"]
+        if booking["type"] != "flight":
+            response = {
+                "status": "INVALID_BOOKING_TYPE",
+                "message": f"Web check-in is only available for flight bookings. Booking {booking_id_or_pnr} is a {booking['type']} booking.",
+            }
+        else:
+            response = {
+                "status": "SUCCESS",
+                "message": f"Web check-in completed for booking {booking_id_or_pnr}. Boarding passes have been sent to your registered email and mobile number.",
+                "booking_type": booking["type"],
+                "journeys_processed": len(journeys),
+            }
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The web check-in and boarding pass request has been processed. Details: {json.dumps(response)}. Please inform the user."
+            }
+        ],
+    }
+    await queue.put(system_message)
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
 
-async def _fetch_and_send_details_later(session, booking_id_or_pnr: str):
+async def _take_a_nap_later(queue):
+    await asyncio.sleep(30)
+    tool_name = "take_a_nap"
+    params_sent = {}
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
+    response = {
+        "status": "SUCCESS",
+        "message": "I have slept really good, thanks for waking me up! 😴💤",
+        "sleep_duration": "30 seconds",
+        "wake_up_time": datetime.now(timezone.utc).isoformat()
+    }
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The nap is over. Details: {json.dumps(response)}. Please inform the user."
+            }
+        ],
+    }
+    await queue.put(system_message)
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
+
+async def _fetch_and_send_details_later(queue, booking_id_or_pnr: str):
     """Simulates a long-running task to fetch booking details and sends them back to the session."""
     await asyncio.sleep(20)
     tool_name = "Flight_Booking_Details_Agent"
@@ -310,11 +298,45 @@ async def _fetch_and_send_details_later(session, booking_id_or_pnr: str):
         ],
     }
 
-    await session.send_client_content(turns=[system_message])
+    await queue.put(system_message)
     _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
 
 
-def Flight_Booking_Details_Agent(session, booking_id_or_pnr: str) -> dict:
+# --- Tool Function Implementations (Synchronous Wrappers) ---
+
+def NameCorrectionAgent(session, queue, correction_type: str, fn: str, ln: str) -> dict:
+    asyncio.create_task(_name_correction_later(queue, correction_type, fn, ln))
+    return {"status": "PENDING", "message": "Processing name correction..."}
+
+def SpecialClaimAgent(session, queue, claim_type: str) -> dict:
+    asyncio.create_task(_special_claim_later(queue, claim_type))
+    return {"status": "PENDING", "message": "Filing special claim..."}
+
+def Enquiry_Tool(session, queue) -> dict:
+    asyncio.create_task(_enquiry_tool_later(queue))
+    return {"status": "PENDING", "message": "Looking up information for your enquiry..."}
+
+def Eticket_Sender_Agent(session, queue, booking_id_or_pnr: str) -> dict:
+    asyncio.create_task(_eticket_sender_later(queue, booking_id_or_pnr))
+    return {"status": "PENDING", "message": f"Sending e-ticket for booking {booking_id_or_pnr}..."}
+
+def ObservabilityAgent(session, queue, operation_type: str) -> dict:
+    asyncio.create_task(_observability_agent_later(queue, operation_type))
+    return {"status": "PENDING", "message": f"Tracking refund status for {operation_type}..."}
+
+def DateChangeAgent(session, queue, action: str, sector_info: list) -> dict:
+    asyncio.create_task(_date_change_agent_later(queue, action, sector_info))
+    return {"status": "PENDING", "message": f"Processing date change action '{action}'..."}
+
+def Connect_To_Human_Tool(session, queue, reason_of_invoke: str, frustration_score: str = None) -> dict:
+    asyncio.create_task(_connect_to_human_tool_later(queue, reason_of_invoke, frustration_score))
+    return {"status": "PENDING", "message": "Connecting you to a human agent..."}
+
+def Booking_Cancellation_Agent(session, queue, booking_id_or_pnr: str, action: str, cancel_scope: str = "NOT_MENTIONED", otp: str = "", partial_info: list = None) -> dict:
+    asyncio.create_task(_booking_cancellation_agent_later(queue, booking_id_or_pnr, action, cancel_scope, otp, partial_info))
+    return {"status": "PENDING", "message": f"Processing cancellation action '{action}' for booking {booking_id_or_pnr}..."}
+
+def Flight_Booking_Details_Agent(session, queue, booking_id_or_pnr: str) -> dict:
     """
     Starts a background task to fetch booking details and immediately returns a pending message.
     """
@@ -323,7 +345,7 @@ def Flight_Booking_Details_Agent(session, booking_id_or_pnr: str) -> dict:
     _log_tool_event("INVOCATION_START", tool_name, params_sent)
 
     # Start the background task
-    asyncio.create_task(_fetch_and_send_details_later(session, booking_id_or_pnr))
+    asyncio.create_task(_fetch_and_send_details_later(queue, booking_id_or_pnr))
 
     # Immediately return a pending response
     response = {
@@ -333,77 +355,10 @@ def Flight_Booking_Details_Agent(session, booking_id_or_pnr: str) -> dict:
     _log_tool_event("INVOCATION_PENDING", tool_name, params_sent, response)
     return response
 
+def Webcheckin_And_Boarding_Pass_Agent(session, queue, booking_id_or_pnr: str, journeys: list) -> dict:
+    asyncio.create_task(_webcheckin_and_boarding_pass_agent_later(queue, booking_id_or_pnr, journeys))
+    return {"status": "PENDING", "message": f"Processing web check-in for booking {booking_id_or_pnr}..."}
 
-async def Webcheckin_And_Boarding_Pass_Agent(booking_id_or_pnr: str, journeys: list) -> dict:
-    """Handles web check-in and boarding pass requests.
-
-    If the user is already checked in, this agent will send the boarding pass
-    for the given PNR or Booking ID via supported communication channels such
-    as WhatsApp, email, or SMS.
-
-    Args:
-        booking_id_or_pnr (str): The booking ID or PNR of the itinerary.
-        journeys (list): A list of journeys for which the user wants to do
-            web check-in. Each journey can have different passengers.
-
-    Returns:
-        dict: A dictionary containing the status of the operation and a
-              confirmation message.
-    """
-    await asyncio.sleep(20)
-    tool_name = "Webcheckin_And_Boarding_Pass_Agent"
-    params_sent = {"booking_id_or_pnr": booking_id_or_pnr, "journeys": journeys}
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    
-    # Validate booking exists before proceeding
-    validation = validate_booking_exists(booking_id_or_pnr)
-    if not validation["is_valid"]:
-        response = {
-            "status": validation["status"],
-            "message": validation["message"],
-        }
-        _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-        return response
-    
-    # Booking exists, proceed with web check-in
-    booking = validation["booking"]
-    if booking["type"] != "flight":
-        response = {
-            "status": "INVALID_BOOKING_TYPE",
-            "message": f"Web check-in is only available for flight bookings. Booking {booking_id_or_pnr} is a {booking['type']} booking.",
-        }
-    else:
-        response = {
-            "status": "SUCCESS",
-            "message": f"Web check-in completed for booking {booking_id_or_pnr}. Boarding passes have been sent to your registered email and mobile number.",
-            "booking_type": booking["type"],
-            "journeys_processed": len(journeys),
-        }
-    
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-    return response
-
-
-async def take_a_nap() -> dict:
-    """A dummy function that takes a nap for 30 seconds and then returns a friendly wake-up message.
-    
-    This function is designed to test long-running function calls and non-blocking execution.
-    It will take a nap for exactly 30 seconds before returning a response.
-    
-    Returns:
-        dict: A dictionary containing the wake-up message.
-    """
-    await asyncio.sleep(30)
-    tool_name = "take_a_nap"
-    params_sent = {}
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    
-    response = {
-        "status": "SUCCESS",
-        "message": "I have slept really good, thanks for waking me up! 😴💤",
-        "sleep_duration": "30 seconds",
-        "wake_up_time": datetime.now(timezone.utc).isoformat()
-    }
-    
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
-    return response
+def take_a_nap(session, queue) -> dict:
+    asyncio.create_task(_take_a_nap_later(queue))
+    return {"status": "PENDING", "message": "I'm going to take a short nap... I'll be back in 30 seconds."}

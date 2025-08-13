@@ -15,12 +15,13 @@ from app.tools.registry import CallbackBasedFunctionRegistry
 class ToolCallProcessor:
     """Processes tool calls from Gemini Live API."""
     
-    def __init__(self, session, available_functions: Dict[str, Callable]):
+    def __init__(self, session, available_functions: Dict[str, Callable], tool_results_queue: asyncio.Queue):
         self.session = session
         self.available_functions = available_functions
+        self.tool_results_queue = tool_results_queue
         
         # Create callback-based registry for enhanced execution
-        self.callback_registry = CallbackBasedFunctionRegistry(session, available_functions)
+        self.callback_registry = CallbackBasedFunctionRegistry(session, available_functions, self.tool_results_queue)
         
         # Keep original implementation for fallback/compatibility
         self.use_callback_pattern = True  # Enable callback-based execution

@@ -75,11 +75,12 @@ available_functions = {
 class CallbackBasedFunctionRegistry:
     """Enhanced function registry with callback-based execution for non-blocking function calls."""
     
-    def __init__(self, session, functions_dict: Dict[str, Callable] = None):
+    def __init__(self, session, functions_dict: Dict[str, Callable] = None, tool_results_queue: asyncio.Queue = None):
         """Initialize the callback-based function registry."""
         self.session = session
         self.functions = functions_dict or available_functions
         self.running_tasks: Dict[str, asyncio.Task] = {}
+        self.tool_results_queue = tool_results_queue
         
     async def execute_function_async(
         self,
@@ -99,15 +100,11 @@ class CallbackBasedFunctionRegistry:
 
             # Execute the function
             start_time = time.time()
-            if function_name == "Flight_Booking_Details_Agent":
-                # Special handling for the non-blocking agent
-                result = func(self.session, **arguments)
-            elif asyncio.iscoroutinefunction(func):
+            if asyncio.iscoroutinefunction(func):
                 result = await func(**arguments)
             else:
-                # Run sync function in thread pool to avoid blocking
-                loop = asyncio.get_event_loop()
-                result = await loop.run_in_executor(None, lambda: func(**arguments))
+                # All our tools now take session and queue as the first arguments
+                result = func(self.session, self.tool_results_queue, **arguments)
             
             end_time = time.time()
             duration = (end_time - start_time) * 1000
@@ -168,9 +165,9 @@ class CallbackBasedFunctionRegistry:
             else:
                 result_message = str(result)
 
-            # For the non-blocking agent, the immediate response is the "PENDING" message.
+            # For the non-blocking agents, the immediate response is the "PENDING" message.
             # The final response is sent later by the background task.
-            if function_name == "Flight_Booking_Details_Agent" and isinstance(result_message, dict) and result_message.get("status") == "PENDING":
+            if isinstance(result_message, dict) and result_message.get("status") == "PENDING":
                 # Send the pending response to unblock the model
                 function_response = types.FunctionResponse(
                     name=function_name,
@@ -233,6 +230,6 @@ class CallbackBasedFunctionRegistry:
 
 
 # Create default registry instance for backward compatibility
-def create_callback_registry(session, functions_dict: Dict[str, Callable] = None):
+def create_callback_registry(session, functions_dict: Dict[str, Callable] = None, tool_results_queue: asyncio.Queue = None):
     """Factory function to create a callback-based registry."""
-    return CallbackBasedFunctionRegistry(session, functions_dict)
+    return CallbackBasedFunctionRegistry(session, functions_dict, tool_results_queue)

@@ -23,15 +23,16 @@ class GeminiResponseHandler:
     """Handles responses from Gemini Live API."""
     
     def __init__(self, session, session_state: Dict[str, Any], 
-                 available_functions: Dict[str, Callable]):
+                 available_functions: Dict[str, Callable], tool_results_queue: asyncio.Queue):
         self.session = session
         self.session_state = session_state
         self.available_functions = available_functions
+        self.tool_results_queue = tool_results_queue
         
         # Initialize processors
         self.audio_processor = AudioProcessor(session_state)
         self.transcription_processor = TranscriptionProcessor(session_state)
-        self.tool_processor = ToolCallProcessor(session, available_functions)
+        self.tool_processor = ToolCallProcessor(session, available_functions, tool_results_queue)
     
     async def handle_gemini_responses(self):
         """Main Gemini response handling loop."""
@@ -45,6 +46,13 @@ class GeminiResponseHandler:
                         break
                     
                     await self._process_response(response)
+
+                    # Graceful delivery of tool results
+                    if response.server_content and response.server_content.turn_complete:
+                        if not self.tool_results_queue.empty():
+                            result_to_send = await self.tool_results_queue.get()
+                            await self.session.send_client_content(turns=[result_to_send])
+                            self.tool_results_queue.task_done()
                     
                     if not self.session_state['active_processing']:
                         break
