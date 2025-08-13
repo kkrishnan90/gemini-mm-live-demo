@@ -151,16 +151,11 @@ export const useAudio = (
       ...context
     });
     
-    addLogEntry(
-      "vad_state_machine",
-      `VAD STATE MACHINE: ${previousState} -> ${newState} (${trigger}) [ID: ${correlationId}]`
-    );
-    
-    // Log detailed state analysis for complex scenarios
-    if (newState === 'barge_in_detected' || newState === 'conflicting_vad_states') {
+    // Log only important VAD state changes
+    if (newState === 'barge_in_detected') {
       addLogEntry(
-        "vad_analysis",
-        `COMPLEX VAD SCENARIO: Gemini VAD=${vadState.geminiVadActive}, Frontend VAD=${vadState.frontendVadActive}, Context=${JSON.stringify(context)} [ID: ${correlationId}]`
+        "vad_barge_in",
+        `🛑 Barge-in detected: ${previousState} -> ${newState}`
       );
     }
     
@@ -518,15 +513,10 @@ export const useAudio = (
         bargeInTriggered: isPlayingRef.current
       });
       
-      addLogEntry(
-        "vad_activation",
-        `VAD Activated: User speech detected during playback [ID: ${correlationId}]`
-      );
-      
       if (isPlayingRef.current) {
         addLogEntry(
           "barge_in",
-          `BARGE-IN TRIGGERED: User speech during Gemini playback (energy: ${data.energy?.toFixed(3)}, threshold: ${data.threshold?.toFixed(3)}) [ID: ${correlationId}]`
+          `🛑 Barge-in detected - stopping playback`
         );
         stopSystemAudioPlayback();
         

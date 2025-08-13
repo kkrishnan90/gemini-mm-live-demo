@@ -24,14 +24,7 @@ class AudioProcessor:
         current_time = asyncio.get_event_loop().time()
         time_since_connection = current_time - self.session_state['connection_start_time']
         
-        print(f"📥 GEMINI RESPONSE CORRELATION: "
-              f"id={correlation_id}, "
-              f"size={len(audio_data)}bytes, "
-              f"client_ready={self.session_state['client_ready_for_audio']}, "
-              f"connection_time={time_since_connection:.2f}s, "
-              f"should_activate_vad={not settings.DISABLE_VAD}")
-        
-        print(f"📥 Backend: Received audio from Gemini Live API: {len(audio_data)} bytes [ID: {correlation_id}]")
+        # Process audio data from Gemini
         
         try:
             # Auto-flush buffer after timeout if client isn't ready
@@ -54,8 +47,7 @@ class AudioProcessor:
             asyncio.get_event_loop().time() - self.session_state['connection_start_time']
         )
         
-        print(f"⏰ 🐛 DEBUG: Client readiness TIMEOUT after {time_since_connection:.2f}s")
-        print(f"🐛 DEBUG: Auto-flushing {buffer.size()} buffered chunks")
+        print(f"⏰ Client readiness timeout - auto-flushing {buffer.size()} buffered chunks")
         
         self.session_state['client_ready_for_audio'] = True
         
@@ -77,15 +69,15 @@ class AudioProcessor:
                     timeout_flushed_count += 1
                     chunk_size = metadata["size_bytes"]
                     duration = metadata["expected_duration_ms"]
-                    print(f"🐛 DEBUG: Timeout-flushed chunk #{timeout_flushed_count} ({chunk_size} bytes, {duration:.1f}ms)")
+                    # Timeout-flushed chunk sent
                 else:
                     # Fallback for old format
                     await websocket.send(buffered_chunk)
                     timeout_flushed_count += 1
             except Exception as send_exc:
-                print(f"🐛 DEBUG: Error sending timeout-flushed chunk #{timeout_flushed_count}: {send_exc}")
+                print(f"Error sending timeout-flushed chunk #{timeout_flushed_count}: {send_exc}")
         
-        print(f"🐛 DEBUG: Timeout flushed {timeout_flushed_count} chunks")
+        print(f"✅ Timeout flushed {timeout_flushed_count} chunks")
     
     async def _send_audio_immediately(self, audio_data: bytes, current_time: float, correlation_id: str = None):
         """Send audio immediately to ready client."""

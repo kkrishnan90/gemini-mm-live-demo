@@ -44,7 +44,7 @@ class WebSocketHandler:
     async def handle_connection(self):
         """Main WebSocket connection handler."""
         connection_start_time = asyncio.get_event_loop().time()
-        print(f"🌐 🐛 DEBUG: NEW WebSocket connection accepted at {connection_start_time}")
+        print(f"🌐 New WebSocket connection accepted")
         
         # Initialize connection state
         session_state = self._initialize_session_state(connection_start_time)

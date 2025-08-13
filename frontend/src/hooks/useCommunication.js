@@ -458,10 +458,7 @@ export const useCommunication = (
                   };
                 }
                 
-                addLogEntryRef.current(
-                  "turn_tracking",
-                  `🆕 NEW TURN: ${receivedData.id} started (${receivedData.sender})`
-                );
+                // Simplified turn logging
               }
               
               // Handle turn completion
@@ -472,10 +469,7 @@ export const useCommunication = (
                   tracking.turnEndSignals.add(receivedData.id);
                 }
                 
-                addLogEntryRef.current(
-                  "turn_final",
-                  `🔚 TURN FINAL: ${receivedData.id} completed - no more chunks expected`
-                );
+                // Turn completed - trigger playback
                 
                 // Trigger early playback if we have pending chunks
                 if (jitterBufferRef.current.length > 0 && !isPlayingRef.current) {
@@ -635,17 +629,6 @@ export const useCommunication = (
           // Update turn data if we have a current turn
           if (tracking.currentTurnId && tracking.turnChunkData[tracking.currentTurnId]) {
             tracking.turnChunkData[tracking.currentTurnId].received++;
-            
-            addLogEntryRef.current(
-              "chunk_received",
-              `📥 Audio chunk received for turn ${tracking.currentTurnId}: ${tracking.turnChunkData[tracking.currentTurnId].received} chunks (${event.data.byteLength} bytes, queue: ${jitterBufferRef.current.length + 1})`
-            );
-          } else {
-            // No current turn ID - this might be the issue!
-            addLogEntryRef.current(
-              "chunk_received_no_turn",
-              `⚠️ Audio chunk received without turn ID: ${event.data.byteLength} bytes (queue: ${jitterBufferRef.current.length + 1})`
-            );
           }
           
           jitterBufferRef.current.push(event.data);
