@@ -59,7 +59,10 @@ export const useCommunication = (
     lastChunkReceivedTime: null,
     lastChunkPlayedTime: null,
     turnEndSignals: new Set(), // Track when turn end signals are received
-    isExpectingMoreChunks: true // Flag to indicate if we're expecting more chunks
+    isExpectingMoreChunks: true, // Flag to indicate if we're expecting more chunks
+    pendingTurnId: null, // Turn ID waiting to start after current turn completes
+    pendingTurnStartTime: null, // When the pending turn was requested
+    pendingGenerationQueue: [] // Simple queue for audio chunks from new generations
   });
   
   // Function to detect potential truncation issues
@@ -114,14 +117,54 @@ export const useCommunication = (
     return shouldStart;
   }, []);
 
+  // Simple function to process pending generation queue
+  const processPendingGenerationQueue = useCallback(() => {
+    const tracking = chunkTrackingRef.current;
+    
+    if (tracking.pendingGenerationQueue.length === 0) return;
+    if (isPlayingRef.current || jitterBufferRef.current.length > 0) return;
+    
+    addLogEntryRef.current(
+      "audio_generation_transition", 
+      `🔄 PROCESSING PENDING GENERATION: Moving ${tracking.pendingGenerationQueue.length} queued chunks to playback queue`
+    );
+    
+    // Move all pending chunks to main jitter buffer
+    while (tracking.pendingGenerationQueue.length > 0) {
+      const chunk = tracking.pendingGenerationQueue.shift();
+      jitterBufferRef.current.push(chunk);
+    }
+    
+    // Start playback
+    if (jitterBufferRef.current.length > 0 && !isPlayingRef.current) {
+      playAudioFromQueue();
+    }
+  }, []);
+
   const playAudioFromQueue = useCallback(async () => {
+    const currentTime = new Date().toTimeString().split(' ')[0];
+    
     // Improved jitter buffer logic - check if we should start playback early
     const hasMinimumChunks = jitterBufferRef.current.length >= adaptiveJitterBufferSize.current;
     const shouldStartEarly = shouldStartPlaybackEarly();
     
+    addLogEntryRef.current(
+      "playback_attempt",
+      `[${currentTime}] 🎵 PLAYBACK ATTEMPT: isPlaying=${isPlayingRef.current}, queueLength=${jitterBufferRef.current.length}, hasMinimum=${hasMinimumChunks}, shouldStart=${shouldStartEarly}`
+    );
+    
     if (isPlayingRef.current || (!hasMinimumChunks && !shouldStartEarly)) {
+      addLogEntryRef.current(
+        "playback_blocked",
+        `[${currentTime}] ⛔ PLAYBACK BLOCKED: Already playing or insufficient chunks`
+      );
       return;
     }
+    
+    addLogEntryRef.current(
+      "playback_starting",
+      `[${currentTime}] 🚀 PLAYBACK STARTING: Setting isPlayingRef=true`
+    );
     isPlayingRef.current = true;
     const audioChunk = jitterBufferRef.current.shift();
     if (!audioChunk) {
@@ -207,15 +250,65 @@ export const useCommunication = (
       }
 
       source.onended = () => {
+        const currentTime = new Date().toTimeString().split(' ')[0];
+        const tracking = chunkTrackingRef.current;
+        
+        addLogEntryRef.current(
+          "playback_ended",
+          `[${currentTime}] 🏁 PLAYBACK ENDED: Setting isPlayingRef=false, queueLength=${jitterBufferRef.current.length}, pendingQueue=${tracking.pendingGenerationQueue.length}`
+        );
+        
         isPlayingRef.current = false;
         
         // Continue playing remaining chunks in queue
         if (jitterBufferRef.current.length > 0) {
+          addLogEntryRef.current(
+            "playback_continue",
+            `[${currentTime}] ⏩ CONTINUING PLAYBACK: ${jitterBufferRef.current.length} chunks remaining`
+          );
           playAudioFromQueue();
         } else {
           // No more chunks in queue - check if we should wait or if turn is complete
           const tracking = chunkTrackingRef.current;
-          if (tracking.isExpectingMoreChunks) {
+          
+          // Check if we have a pending turn transition that we can now complete
+          if (tracking.pendingTurnId && tracking.currentTurnId) {
+            addLogEntryRef.current(
+              "turn_transition",
+              `🔄 COMPLETING DEFERRED TURN TRANSITION: Previous turn ${tracking.currentTurnId} finished playing, now starting turn ${tracking.pendingTurnId}`
+            );
+            
+            // Complete the previous turn
+            if (tracking.turnChunkData[tracking.currentTurnId]) {
+              tracking.turnChunkData[tracking.currentTurnId].endSignalReceived = true;
+              tracking.turnEndSignals.add(tracking.currentTurnId);
+              checkForTruncationIssues(tracking.currentTurnId);
+            }
+            
+            // Start the new turn
+            const newTurnId = tracking.pendingTurnId;
+            tracking.currentTurnId = newTurnId;
+            tracking.chunksReceivedCurrentTurn = 0;
+            tracking.chunksPlayedCurrentTurn = 0;
+            tracking.pendingTurnId = null;
+            tracking.pendingTurnStartTime = null;
+            tracking.isExpectingMoreChunks = true;
+            
+            // Initialize turn data if not already present
+            if (!tracking.turnChunkData[newTurnId]) {
+              tracking.turnChunkData[newTurnId] = {
+                received: 0,
+                played: 0,
+                startTime: Date.now(),
+                endSignalReceived: false
+              };
+            }
+            
+            addLogEntryRef.current(
+              "turn_transition",
+              `✅ TURN TRANSITION COMPLETED: Now active on turn ${newTurnId}`
+            );
+          } else if (tracking.isExpectingMoreChunks) {
             addLogEntryRef.current(
               "audio_queue_empty",
               `🔄 Audio queue empty but expecting more chunks. Waiting for next chunk...`
@@ -233,6 +326,13 @@ export const useCommunication = (
               "audio_turn_end",
               `🏁 Audio playback complete - no more chunks expected`
             );
+            
+            // Check if we have pending generation chunks to process
+            addLogEntryRef.current(
+              "pending_queue_check",
+              `[${currentTime}] 🔍 CHECKING PENDING QUEUE: ${tracking.pendingGenerationQueue.length} chunks waiting`
+            );
+            processPendingGenerationQueue();
           }
         }
       };
@@ -242,7 +342,7 @@ export const useCommunication = (
       isPlayingRef.current = false;
       setTimeout(playAudioFromQueue, 100);
     }
-  }, [adaptiveJitterBufferSize, currentAudioSourceRef, isPlayingRef, jitterBufferRef, nextStartTimeRef, shouldStartPlaybackEarly, checkForTruncationIssues]);
+  }, [adaptiveJitterBufferSize, currentAudioSourceRef, isPlayingRef, jitterBufferRef, nextStartTimeRef, shouldStartPlaybackEarly, checkForTruncationIssues, processPendingGenerationQueue]);
 
 
   const processPendingAudioChunks = useCallback(async () => {
@@ -280,6 +380,13 @@ export const useCommunication = (
     tracking.chunksPlayedCurrentTurn = 0;
     tracking.lastChunkReceivedTime = null;
     tracking.lastChunkPlayedTime = null;
+    
+    // Clear any pending turn transitions
+    if (tracking.pendingTurnId) {
+      addLogEntryRef.current("audio_reset", `🔄 Clearing pending turn transition: ${tracking.pendingTurnId}`);
+      tracking.pendingTurnId = null;
+      tracking.pendingTurnStartTime = null;
+    }
     
     // Don't reset currentTurnId or turnChunkData as they're useful for analysis
     
@@ -434,17 +541,44 @@ export const useCommunication = (
               
               // Detect new turns and turn completion
               if (receivedData.id && receivedData.id !== tracking.currentTurnId) {
-                // New turn started
+                // New turn started - but don't immediately close previous turn
                 if (tracking.currentTurnId) {
-                  // Mark previous turn as ended
+                  // For async tool calls, we need to allow previous conversation to continue
+                  // Only mark as ended if there are no pending chunks to play
+                  const pendingChunksForPreviousTurn = jitterBufferRef.current.length;
+                  
                   if (tracking.turnChunkData[tracking.currentTurnId]) {
-                    tracking.turnChunkData[tracking.currentTurnId].endSignalReceived = true;
-                    tracking.turnEndSignals.add(tracking.currentTurnId);
+                    const prevTurnData = tracking.turnChunkData[tracking.currentTurnId];
+                    
+                    if (pendingChunksForPreviousTurn === 0 && !isPlayingRef.current) {
+                      // No pending audio, safe to close previous turn
+                      prevTurnData.endSignalReceived = true;
+                      tracking.turnEndSignals.add(tracking.currentTurnId);
+                      checkForTruncationIssues(tracking.currentTurnId);
+                      
+                      addLogEntryRef.current(
+                        "turn_transition",
+                        `✅ Clean turn transition: Previous turn ${tracking.currentTurnId} completed, starting new turn ${receivedData.id}`
+                      );
+                    } else {
+                      // Audio still playing from previous turn - defer the transition
+                      addLogEntryRef.current(
+                        "turn_transition",
+                        `🔄 DEFERRED TURN TRANSITION: Previous turn ${tracking.currentTurnId} still has ${pendingChunksForPreviousTurn} chunks queued + ${isPlayingRef.current ? 'audio playing' : 'no active playback'}. New turn ${receivedData.id} will start after completion.`
+                      );
+                      
+                      // Mark that we have a pending turn transition
+                      tracking.pendingTurnId = receivedData.id;
+                      tracking.pendingTurnStartTime = Date.now();
+                      
+                      // Don't change currentTurnId yet - let current turn finish
+                      // Note: Continue processing instead of returning to handle subsequent updates
+                    }
                   }
-                  checkForTruncationIssues(tracking.currentTurnId);
                 }
                 
-                // Initialize new turn
+                // Initialize new turn (only if we're not deferring)
+                const previousTurnId = tracking.currentTurnId;
                 tracking.currentTurnId = receivedData.id;
                 tracking.chunksReceivedCurrentTurn = 0;
                 tracking.chunksPlayedCurrentTurn = 0;
@@ -623,19 +757,108 @@ export const useCommunication = (
           // Enhanced audio chunk tracking
           const tracking = chunkTrackingRef.current;
           tracking.totalChunksReceived++;
-          tracking.chunksReceivedCurrentTurn++;
           tracking.lastChunkReceivedTime = Date.now();
           
-          // Update turn data if we have a current turn
-          if (tracking.currentTurnId && tracking.turnChunkData[tracking.currentTurnId]) {
-            tracking.turnChunkData[tracking.currentTurnId].received++;
+          // DETAILED STATE LOGGING
+          const currentTime = new Date().toTimeString().split(' ')[0];
+          addLogEntryRef.current(
+            "audio_chunk_debug",
+            `[${currentTime}] 🔍 CHUNK RECEIVED #${tracking.totalChunksReceived}: isPlaying=${isPlayingRef.current}, queueLength=${jitterBufferRef.current.length}, pendingQueue=${tracking.pendingGenerationQueue.length}`
+          );
+          
+          // Handle audio chunks - could be for current turn or pending turn
+          let targetTurnId = tracking.currentTurnId;
+          
+          // If we have a pending turn and no current audio playing, chunks might be for the pending turn
+          if (tracking.pendingTurnId && jitterBufferRef.current.length === 0 && !isPlayingRef.current) {
+            addLogEntryRef.current(
+              "audio_chunk_routing",
+              `📦 Audio chunk received during pending turn transition - routing to pending turn ${tracking.pendingTurnId}`
+            );
+            targetTurnId = tracking.pendingTurnId;
+          } else {
+            // Chunks for current turn
+            tracking.chunksReceivedCurrentTurn++;
           }
           
+          // Update turn data for the appropriate turn
+          if (targetTurnId && tracking.turnChunkData[targetTurnId]) {
+            tracking.turnChunkData[targetTurnId].received++;
+            
+            addLogEntryRef.current(
+              "audio_chunk_received",
+              `📦 Audio chunk received for turn ${targetTurnId}: ${tracking.turnChunkData[targetTurnId].received} total (queue: ${jitterBufferRef.current.length} chunks)`
+            );
+          } else if (targetTurnId) {
+            // Initialize turn data if it doesn't exist
+            tracking.turnChunkData[targetTurnId] = {
+              received: 1,
+              played: 0,
+              startTime: Date.now(),
+              endSignalReceived: false
+            };
+            
+            addLogEntryRef.current(
+              "audio_chunk_received",
+              `📦 First audio chunk for new turn ${targetTurnId} (queue: ${jitterBufferRef.current.length} chunks)`
+            );
+          }
+          
+          // IMPROVED GENERATION SEPARATION LOGIC WITH TURN CONTEXT
+          const currentlyPlaying = isPlayingRef.current;
+          const hasQueuedAudio = jitterBufferRef.current.length > 0;
+          const hasActiveTurn = tracking.currentTurnId && tracking.isExpectingMoreChunks;
+          const hasPendingTurn = tracking.pendingTurnId;
+          
+          addLogEntryRef.current(
+            "audio_generation_check",
+            `[${currentTime}] 🎯 GENERATION CHECK: currentlyPlaying=${currentlyPlaying}, hasQueuedAudio=${hasQueuedAudio}, hasActiveTurn=${hasActiveTurn}, hasPendingTurn=${hasPendingTurn}, currentTurn=${tracking.currentTurnId}`
+          );
+          
+          // Only treat as new generation if:
+          // 1. Audio is playing AND queue is empty AND
+          // 2. We don't have an active turn expecting more chunks AND  
+          // 3. We don't have a pending turn transition
+          // This prevents tool responses from being misclassified as new generations
+          const shouldQueueAsNewGeneration = currentlyPlaying && 
+                                           !hasQueuedAudio && 
+                                           !hasActiveTurn && 
+                                           !hasPendingTurn;
+          
+          if (shouldQueueAsNewGeneration) {
+            tracking.pendingGenerationQueue.push(event.data);
+            addLogEntryRef.current(
+              "audio_generation_detected",
+              `[${currentTime}] 🚧 NEW GENERATION DETECTED: Audio playing with empty queue and no active turn - queuing chunk for later (queue size: ${tracking.pendingGenerationQueue.length})`
+            );
+            return;
+          } else if (currentlyPlaying && !hasQueuedAudio && (hasActiveTurn || hasPendingTurn)) {
+            // This is likely a tool response or continuation of current conversation
+            addLogEntryRef.current(
+              "audio_continuation_detected",
+              `[${currentTime}] 🔄 TURN CONTINUATION: Audio playing but expecting more chunks for turn ${targetTurnId} - adding to main buffer`
+            );
+          }
+          
+          // Normal processing - add to main jitter buffer
           jitterBufferRef.current.push(event.data);
+          addLogEntryRef.current(
+            "audio_normal_processing",
+            `[${currentTime}] ✅ NORMAL PROCESSING: Added chunk to main buffer (new queue size: ${jitterBufferRef.current.length})`
+          );
           
           // Try to start playback if not already playing
           if (!isPlayingRef.current) {
+            addLogEntryRef.current(
+              "audio_playback_trigger",
+              `[${currentTime}] 🎬 TRIGGERING PLAYBACK: Starting playAudioFromQueue with ${jitterBufferRef.current.length} chunks`
+            );
             playAudioFromQueue();
+          } else {
+            addLogEntryRef.current(
+              "audio_playback_skip",
+              `[${currentTime}] ⏭️ SKIPPING PLAYBACK: Already playing, chunk added to queue (size: ${jitterBufferRef.current.length})`
+            );
           }
         }
       };
