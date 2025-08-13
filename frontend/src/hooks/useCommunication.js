@@ -562,6 +562,50 @@ export const useCommunication = (
                   `Backend signaled Gemini response start - frontend VAD should ${vad_should_activate ? 'REMAIN ACTIVE for barge-in' : 'defer to Gemini VAD'} [ID: ${correlation_id}]`
                 );
               }
+            } else if (receivedData.type === "interrupt_playback") {
+              // Handle interruption signal from backend
+              addLogEntryRef.current(
+                "interrupt",
+                "🛑 Playback interrupted by user input - clearing all audio buffers"
+              );
+              
+              // Stop current audio playback immediately
+              if (stopSystemAudioPlayback) {
+                stopSystemAudioPlayback();
+              }
+              
+              // Clear jitter buffer to prevent stale audio from playing
+              const bufferedChunks = jitterBufferRef.current.length;
+              jitterBufferRef.current = [];
+              
+              // Clear pending audio chunks from transmission queue
+              const pendingChunks = pendingAudioChunks.current.length;
+              pendingAudioChunks.current = [];
+              
+              // Clear pending metadata
+              pendingMetadataRef.current.clear();
+              
+              // Reset turn tracking for clean state
+              const tracking = chunkTrackingRef.current;
+              if (tracking.currentTurnId) {
+                addLogEntryRef.current(
+                  "interrupt",
+                  `🛑 Turn ${tracking.currentTurnId} interrupted - cleared ${bufferedChunks} buffered + ${pendingChunks} pending chunks`
+                );
+                
+                // Mark current turn as interrupted
+                if (tracking.turnChunkData[tracking.currentTurnId]) {
+                  tracking.turnChunkData[tracking.currentTurnId].interrupted = true;
+                }
+              }
+              
+              // Reset playback state for clean barge-in
+              isPlayingRef.current = false;
+              
+              addLogEntryRef.current(
+                "interrupt",
+                "✅ Audio pipeline cleared - ready for new user input"
+              );
             } else if (receivedData.type === "audio_truncation") {
               addLogEntryRef.current(
                 "error",
