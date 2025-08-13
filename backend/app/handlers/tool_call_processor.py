@@ -69,20 +69,13 @@ class ToolCallProcessor:
             }
         
         # For NON_BLOCKING functions, add scheduling to control when Gemini announces results
-        # INTERRUPT: Stop current speech and announce results immediately  
-        # WHEN_IDLE: Wait until current response is complete before announcing
-        # SILENT: Use results without announcing them
+        # SILENT: Functions execute in background without interrupting conversation
+        # The AI will naturally incorporate results into ongoing conversation flow
         if function_response_content and "status" in function_response_content and function_response_content["status"] == "SUCCESS":
-            # Choose scheduling based on function type
-            if fc.name in ["Flight_Booking_Details_Agent", "Booking_Cancellation_Agent"]:
-                # For booking details and cancellations, interrupt to provide immediate feedback
-                function_response_content["scheduling"] = types.FunctionResponseScheduling.INTERRUPT
-            elif fc.name in ["Eticket_Sender_Agent", "Webcheckin_And_Boarding_Pass_Agent", "SpecialClaimAgent"]:
-                # For background tasks like sending emails, wait until current response is complete
-                function_response_content["scheduling"] = types.FunctionResponseScheduling.WHEN_IDLE
-            else:
-                # Default to WHEN_IDLE for other functions
-                function_response_content["scheduling"] = types.FunctionResponseScheduling.WHEN_IDLE
+            # Use SILENT scheduling for seamless conversational experience
+            # This allows users to continue talking while functions execute in background
+            # The AI assistant will naturally use the function results in subsequent responses
+            function_response_content["scheduling"] = types.FunctionResponseScheduling.SILENT
         
         return types.FunctionResponse(
             id=fc.id,
