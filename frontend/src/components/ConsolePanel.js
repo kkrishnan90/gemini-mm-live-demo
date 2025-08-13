@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faPaperPlane } from '@fortawesome/free-solid-svg-icons';
+import { faPaperPlane, faTrash } from '@fortawesome/free-solid-svg-icons';
 
 export const ConsolePanel = ({ 
   messages, 
@@ -8,7 +8,8 @@ export const ConsolePanel = ({
   textInputValue, 
   setTextInputValue, 
   handleSendTextMessage, 
-  isSessionActive 
+  isSessionActive,
+  onClearLogs 
 }) => {
   const logsAreaRef = useRef(null);
 
@@ -22,6 +23,22 @@ export const ConsolePanel = ({
       <div className="console-header">
         <h2>Console</h2>
         <div className="console-header-controls">
+          <button
+            onClick={onClearLogs}
+            className="clear-logs-button"
+            title="Clear all logs"
+            style={{
+              backgroundColor: '#ff4444',
+              color: 'white',
+              border: 'none',
+              padding: '4px 8px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              marginRight: '8px',
+              fontSize: '12px'
+            }}>
+            <FontAwesomeIcon icon={faTrash} /> Clear
+          </button>
           <select
             className="console-dropdown"
             defaultValue="conversations">

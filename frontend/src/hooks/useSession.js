@@ -10,12 +10,13 @@ import {
   RETRY_DELAY_BASE,
   MAX_RETRY_ATTEMPTS,
   MAX_AUDIO_QUEUE_SIZE,
+  BACKEND_HOST,
 } from "../utils/constants";
 import { generateUniqueId } from '../utils/helpers';
 import { debugLog } from '../config/debug';
 
 export const useSession = () => {
-  const { messages, addLogEntry, setMessages } = useAppLogger();
+  const { messages, addLogEntry, setMessages, clearLogs } = useAppLogger();
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [selectedLanguage, setSelectedLanguage] = useState(LANGUAGES[0].code);
   const [textInputValue, setTextInputValue] = useState("");
@@ -309,7 +310,20 @@ export const useSession = () => {
         socketRef.current.close(1000, "User stopped session");
       }
       setIsSessionActive(false);
+      
+      // Clear logs when stopping session
+      setTimeout(() => {
+        clearLogs();
+        setTranscriptionMessages([]);
+        debugLog("🧹 Console logs and transcriptions cleared after session stop");
+      }, 500); // Small delay to allow final log messages to appear
+      
     } else {
+      // Clear logs when starting new session
+      clearLogs();
+      setTranscriptionMessages([]);
+      debugLog("🧹 Console logs and transcriptions cleared for new session");
+      
       addLogEntry("session_control", "User requested to START session.");
       debugLog("🚀 Starting new session...");
       
@@ -329,7 +343,7 @@ export const useSession = () => {
       connectWebSocket(selectedLanguage);
       addLogEntry("session_status", "Session PENDING (WebSocket connecting, Mic to start on WS open).");
     }
-  }, [selectedLanguage, connectWebSocket, handleStopListeningAndCleanupMic, addLogEntry, resumeAudioContext]);
+  }, [selectedLanguage, connectWebSocket, handleStopListeningAndCleanupMic, addLogEntry, resumeAudioContext, clearLogs]);
   
   const handleSendTextMessage = useCallback(() => {
     if (!textInputValue.trim()) return;
@@ -374,6 +388,27 @@ export const useSession = () => {
     addLogEntry("status", 'Welcome! Click "Start Session" or type your query.');
   }, [addLogEntry]);
 
+  const onClearLogs = useCallback(async () => {
+    try {
+      const response = await fetch(`http://${BACKEND_HOST}/api/logs/clear`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        clearLogs(); // Clear frontend logs
+        addLogEntry("system", "All logs cleared successfully");
+      } else {
+        const errorData = await response.json();
+        addLogEntry("error", `Failed to clear logs: ${errorData.message}`);
+      }
+    } catch (error) {
+      addLogEntry("error", `Error clearing logs: ${error.message}`);
+    }
+  }, [addLogEntry, clearLogs]);
+
   return {
     messages,
     isLoading,
@@ -395,5 +430,6 @@ export const useSession = () => {
     audioHealth,
     networkQuality,
     bufferMetrics,
+    onClearLogs,
   };
 };

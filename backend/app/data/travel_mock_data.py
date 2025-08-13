@@ -20,6 +20,44 @@ logger = logging.getLogger(__name__)
 # Global store for logs (maintaining compatibility with original structure)
 GLOBAL_LOG_STORE = []
 
+
+def clear_global_log_store():
+    """Clear all logs from the global log store."""
+    global GLOBAL_LOG_STORE
+    GLOBAL_LOG_STORE.clear()
+    logger.info("🧹 Global log store cleared successfully")
+
+
+def validate_booking_exists(booking_id: str) -> dict:
+    """
+    Validate if a booking ID exists in the system.
+    
+    Args:
+        booking_id (str): The booking ID to validate
+        
+    Returns:
+        dict: Validation result with status and booking data if found
+    """
+    if not booking_id:
+        return {
+            "is_valid": False,
+            "status": "INVALID_BOOKING_ID",
+            "message": "Booking ID cannot be empty"
+        }
+    
+    if booking_id not in MOCK_DATA_STORE["bookings"]:
+        return {
+            "is_valid": False,
+            "status": "BOOKING_NOT_FOUND", 
+            "message": f"Booking {booking_id} not found in our system"
+        }
+    
+    return {
+        "is_valid": True,
+        "status": "SUCCESS",
+        "booking": MOCK_DATA_STORE["bookings"][booking_id]
+    }
+
 # User ID (maintaining compatibility)
 USER_ID = "shubham"
 
@@ -1110,16 +1148,42 @@ def send_eticket(booking_id_or_pnr: str) -> dict:
     """Sends an e-ticket to the user."""
     func_name = "send_eticket"
     params = {"booking_id_or_pnr": booking_id_or_pnr}
-    log_travel_interaction(
-        func_name,
-        params,
-        status="SUCCESS",
-        result_summary=f"E-ticket for booking {booking_id_or_pnr} has been sent.",
-    )
-    return {
-        "status": "SUCCESS",
-        "message": f"E-ticket for booking {booking_id_or_pnr} has been sent.",
-    }
+    
+    try:
+        # Validate booking exists
+        validation = validate_booking_exists(booking_id_or_pnr)
+        if not validation["is_valid"]:
+            log_travel_interaction(
+                func_name,
+                params,
+                status=validation["status"],
+                error_message=validation["message"],
+            )
+            return {
+                "status": validation["status"],
+                "message": validation["message"],
+            }
+        
+        # Booking exists, proceed with sending e-ticket
+        booking = validation["booking"]
+        log_travel_interaction(
+            func_name,
+            params,
+            status="SUCCESS",
+            result_summary=f"E-ticket for booking {booking_id_or_pnr} ({booking['type']}) has been sent successfully.",
+        )
+        return {
+            "status": "SUCCESS",
+            "message": f"E-ticket for booking {booking_id_or_pnr} has been sent to your registered email address.",
+            "booking_type": booking["type"],
+        }
+        
+    except Exception as e:
+        log_travel_interaction(func_name, params, status="ERROR", error_message=str(e))
+        return {
+            "status": "ERROR",
+            "message": "An error occurred while sending the e-ticket",
+        }
 
 
 def track_refund_status(operation_type: str) -> dict:

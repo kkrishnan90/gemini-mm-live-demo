@@ -11,6 +11,16 @@ from google.genai import types
 
 # Function Declarations
 
+take_a_nap_declaration = types.FunctionDeclaration(
+    name="take_a_nap",
+    description="A dummy function that takes a nap for 30 seconds and then wakes up with a friendly message. Use this to test long-running function calls and non-blocking execution.",
+    parameters=types.Schema(
+        type=types.Type.OBJECT,
+        properties={},
+        required=[],
+    ),
+)
+
 NameCorrectionAgent_declaration = types.FunctionDeclaration(
     name="NameCorrectionAgent",
     description="This **NameCorrectionAgent** will take care of name corrections  as well as name change also for given bookingID/PNR. This agent handles various types of name corrections including spelling corrections, name swaps, gender corrections, maiden name changes, and title removals.",
@@ -156,10 +166,14 @@ Connect_To_Human_Tool_declaration = types.FunctionDeclaration(
 
 Booking_Cancellation_Agent_declaration = types.FunctionDeclaration(
     name="Booking_Cancellation_Agent",
-    description="Quotes penalties or executes cancellations for an existing itinerary.",
+    description="Quotes penalties or executes cancellations for an existing itinerary. REQUIRES a valid booking ID/PNR to proceed.",
     parameters=types.Schema(
         type=types.Type.OBJECT,
         properties={
+            "booking_id_or_pnr": types.Schema(
+                type=types.Type.STRING,
+                description="The booking ID or PNR of the itinerary to cancel. This is MANDATORY.",
+            ),
             "action": types.Schema(
                 type=types.Type.STRING,
                 description="Choose QUOTE to fetch refund/penalty information, CONFIRM to execute the cancellation.",
@@ -217,7 +231,7 @@ Booking_Cancellation_Agent_declaration = types.FunctionDeclaration(
                 ),
             ),
         },
-        required=["action"],
+        required=["booking_id_or_pnr", "action"],
     ),
 )
 
@@ -238,10 +252,14 @@ Flight_Booking_Details_Agent_declaration = types.FunctionDeclaration(
 
 Webcheckin_And_Boarding_Pass_Agent_declaration = types.FunctionDeclaration(
     name="Webcheckin_And_Boarding_Pass_Agent",
-    description="This **Webcheckin_And_Boarding_Pass_Agent** agents will take care of web checkin and boarding pass for given bookingID/PNR. If user is already checked-in this agent will send boarding pass given PNR / Booking ID  via supported communication channels such as WhatsApp, email, or SMS.",
+    description="This **Webcheckin_And_Boarding_Pass_Agent** agents will take care of web checkin and boarding pass for given bookingID/PNR. If user is already checked-in this agent will send boarding pass given PNR / Booking ID  via supported communication channels such as WhatsApp, email, or SMS. REQUIRES a valid booking ID/PNR to proceed.",
     parameters=types.Schema(
         type=types.Type.OBJECT,
         properties={
+            "booking_id_or_pnr": types.Schema(
+                type=types.Type.STRING,
+                description="The booking ID or PNR of the itinerary for web check-in. This is MANDATORY.",
+            ),
             "journeys": types.Schema(
                 type=types.Type.ARRAY,
                 description="List of journeys for which user wants to do web check-in. Each journey can have different passengers.",
@@ -284,6 +302,6 @@ Webcheckin_And_Boarding_Pass_Agent_declaration = types.FunctionDeclaration(
                 ),
             )
         },
-        required=["journeys"],
+        required=["booking_id_or_pnr", "journeys"],
     ),
 )
