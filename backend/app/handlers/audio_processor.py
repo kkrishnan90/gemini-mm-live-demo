@@ -19,23 +19,32 @@ class AudioProcessor:
     
     async def process_audio_response(self, audio_data: bytes):
         """Process audio data from Gemini."""
-        print(f"📥 Backend: Received audio from Gemini Live API: {len(audio_data)} bytes")
+        # Generate correlation ID for this Gemini response
+        correlation_id = f"gemini_response_{int(asyncio.get_event_loop().time() * 1000)}_{id(audio_data)}"
+        current_time = asyncio.get_event_loop().time()
+        time_since_connection = current_time - self.session_state['connection_start_time']
+        
+        print(f"📥 GEMINI RESPONSE CORRELATION: "
+              f"id={correlation_id}, "
+              f"size={len(audio_data)}bytes, "
+              f"client_ready={self.session_state['client_ready_for_audio']}, "
+              f"connection_time={time_since_connection:.2f}s, "
+              f"should_activate_vad={not settings.DISABLE_VAD}")
+        
+        print(f"📥 Backend: Received audio from Gemini Live API: {len(audio_data)} bytes [ID: {correlation_id}]")
         
         try:
-            current_time = asyncio.get_event_loop().time()
-            time_since_connection = current_time - self.session_state['connection_start_time']
-            
             # Auto-flush buffer after timeout if client isn't ready
             if not self.session_state['client_ready_for_audio'] and time_since_connection > settings.BUFFER_TIMEOUT_SECONDS:
                 await self._handle_buffer_timeout()
             
             if self.session_state['client_ready_for_audio']:
-                await self._send_audio_immediately(audio_data, current_time)
+                await self._send_audio_immediately(audio_data, current_time, correlation_id)
             else:
-                await self._buffer_audio(audio_data, current_time, time_since_connection)
+                await self._buffer_audio(audio_data, current_time, time_since_connection, correlation_id)
                 
         except Exception as send_exc:
-            print(f"Backend: Error processing audio data: {send_exc}")
+            print(f"Backend: Error processing audio data: {send_exc} [ID: {correlation_id}]")
             self.session_state['active_processing'] = False
     
     async def _handle_buffer_timeout(self):
@@ -78,7 +87,7 @@ class AudioProcessor:
         
         print(f"🐛 DEBUG: Timeout flushed {timeout_flushed_count} chunks")
     
-    async def _send_audio_immediately(self, audio_data: bytes, current_time: float):
+    async def _send_audio_immediately(self, audio_data: bytes, current_time: float, correlation_id: str = None):
         """Send audio immediately to ready client."""
         chunk_size = len(audio_data)
         
@@ -94,14 +103,30 @@ class AudioProcessor:
             timestamp=current_time
         )
         
+        # Log when Gemini starts transmitting responses (playback state detection)
+        print(f"🔊 GEMINI PLAYBACK START: "
+              f"id={correlation_id}, "
+              f"seq={sequence_num}, "
+              f"size={chunk_size}bytes, "
+              f"should_activate_frontend_vad={not settings.DISABLE_VAD}")
+        
+        # Send playback start signal to frontend for VAD correlation
+        await websocket.send_json({
+            "type": "gemini_playback_state", 
+            "playing": True,
+            "sequence": sequence_num,
+            "correlation_id": correlation_id,
+            "vad_should_activate": not settings.DISABLE_VAD
+        })
+        
         # Send metadata first, then audio
         await websocket.send_json(audio_metadata)
         await websocket.send(audio_data)
         
         expected_duration = audio_metadata["expected_duration_ms"]
-        print(f"🔊 UNIFIED Backend: Sent audio seq={sequence_num} ({chunk_size} bytes, {expected_duration:.1f}ms)")
+        print(f"🔊 UNIFIED Backend: Sent audio seq={sequence_num} ({chunk_size} bytes, {expected_duration:.1f}ms) [ID: {correlation_id}]")
     
-    async def _buffer_audio(self, audio_data: bytes, current_time: float, time_since_connection: float):
+    async def _buffer_audio(self, audio_data: bytes, current_time: float, time_since_connection: float, correlation_id: str = None):
         """Buffer audio when client is not ready."""
         buffer = self.session_state['gemini_audio_buffer']
         
@@ -118,7 +143,7 @@ class AudioProcessor:
         chunk_size = len(audio_data)
         expected_duration = audio_chunk_data["metadata"]["expected_duration_ms"]
         
-        print(f"📦 UNIFIED Buffered audio seq={sequence_num} ({chunk_size} bytes, {expected_duration:.1f}ms) - client not ready (t+{time_since_connection:.1f}s)")
+        print(f"📦 GEMINI BUFFERING: id={correlation_id}, seq={sequence_num} ({chunk_size} bytes, {expected_duration:.1f}ms) - client not ready (t+{time_since_connection:.1f}s)")
         
         # Handle buffer pressure
         await self._handle_buffer_pressure(buffer)

@@ -111,9 +111,23 @@ class ClientInputHandler:
             print("⚠️ AUDIO WARNING: Received empty audio chunk")
             return
         
-        print(f"🎤 AUDIO RECEIVED: {len(audio_chunk)} bytes from frontend")
+        # Enhanced audio correlation logging
+        correlation_id = f"backend_audio_{int(asyncio.get_event_loop().time() * 1000)}_{id(audio_chunk)}"
+        connection_time = self._get_connection_time()
+        
+        print(f"🎤 AUDIO INPUT CORRELATION: "
+              f"id={correlation_id}, "
+              f"size={len(audio_chunk)}bytes, "
+              f"client_ready={self.session_state['client_ready_for_audio']}, "
+              f"gemini_vad={'ENABLED' if not settings.DISABLE_VAD else 'DISABLED'}, "
+              f"connection_time={connection_time:.2f}s")
+        
+        print(f"🎤 AUDIO RECEIVED: {len(audio_chunk)} bytes from frontend [ID: {correlation_id}]")
         print(f"🎤 AUDIO FIRST 10 BYTES: {audio_chunk[:10].hex() if len(audio_chunk) >= 10 else audio_chunk.hex()}")
-        print(f"📤 FORWARDING TO GEMINI: {len(audio_chunk)} bytes")
+        print(f"📤 FORWARDING TO GEMINI: {len(audio_chunk)} bytes [ID: {correlation_id}]")
+        
+        # Track timing for correlation
+        send_start_time = asyncio.get_event_loop().time()
         
         await self.session.send_realtime_input(
             audio=types.Blob(
@@ -121,7 +135,9 @@ class ClientInputHandler:
                 data=audio_chunk
             )
         )
-        print(f"✅ AUDIO SENT TO GEMINI: Successfully forwarded {len(audio_chunk)} bytes")
+        
+        send_duration = (asyncio.get_event_loop().time() - send_start_time) * 1000  # Convert to ms
+        print(f"✅ AUDIO SENT TO GEMINI: Successfully forwarded {len(audio_chunk)} bytes in {send_duration:.1f}ms [ID: {correlation_id}]")
     
     def _get_connection_time(self) -> float:
         """Get time since connection started."""

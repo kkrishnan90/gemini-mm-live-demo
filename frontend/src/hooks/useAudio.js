@@ -58,6 +58,114 @@ export const useAudio = (
   });
   const audioChunkSentCountRef = useRef(0);
   const lastSendTimeRef = useRef(0);
+  const correlationCounterRef = useRef(0);
+  const vadStateRef = useRef({
+    currentState: 'idle',
+    previousState: 'idle',
+    geminiVadActive: !process.env.REACT_APP_DISABLE_VAD,
+    frontendVadActive: process.env.REACT_APP_DISABLE_VAD !== "true",
+    stateHistory: [],
+    transitions: []
+  });
+
+  // Enhanced audio state correlation logging
+  const logAudioStateCorrelation = useCallback((event, details = {}) => {
+    const correlationId = `audio_${Date.now()}_${++correlationCounterRef.current}`;
+    const timestamp = Date.now();
+    
+    addLogEntry('audio_correlation', {
+      correlationId,
+      event,
+      timestamp,
+      state: {
+        isPlaying: isPlayingRef.current,
+        isRecording: isRecordingRef.current,
+        isMuted: isMutedRef.current,
+        isSessionActive: isSessionActive,
+        isWebSocketReady: isWebSocketReady,
+        isAudioContextReady: isAudioContextReady
+      },
+      vad: {
+        frontendVadEnabled: process.env.REACT_APP_DISABLE_VAD !== "true",
+        geminiVadEnabled: true, // Backend controls this
+        vadConfigured: audioProcessorRef.current?.vadConfig?.enabled
+      },
+      metrics: {
+        audioChunksSent: audioChunkSentCountRef.current,
+        lastSendTime: lastSendTimeRef.current,
+        timeSinceLastSend: timestamp - lastSendTimeRef.current
+      },
+      ...details
+    });
+    
+    return correlationId;
+  }, [addLogEntry, isSessionActive, isWebSocketReady, isAudioContextReady, isPlayingRef]);
+
+  // VAD state machine management and visualization
+  const updateVADState = useCallback((newState, trigger, context = {}) => {
+    const timestamp = Date.now();
+    const vadState = vadStateRef.current;
+    const previousState = vadState.currentState;
+    
+    // Update state
+    vadState.previousState = previousState;
+    vadState.currentState = newState;
+    
+    // Record transition
+    const transition = {
+      from: previousState,
+      to: newState,
+      trigger,
+      timestamp,
+      context: {
+        ...context,
+        geminiVadActive: vadState.geminiVadActive,
+        frontendVadActive: vadState.frontendVadActive,
+        isPlaying: isPlayingRef.current,
+        isRecording: isRecordingRef.current,
+        isMuted: isMutedRef.current
+      }
+    };
+    
+    vadState.transitions.push(transition);
+    if (vadState.transitions.length > 50) {
+      vadState.transitions = vadState.transitions.slice(-50); // Keep last 50 transitions
+    }
+    
+    vadState.stateHistory.push({
+      state: newState,
+      timestamp,
+      trigger
+    });
+    if (vadState.stateHistory.length > 100) {
+      vadState.stateHistory = vadState.stateHistory.slice(-100); // Keep last 100 states
+    }
+    
+    // Log the VAD state machine visualization
+    const correlationId = logAudioStateCorrelation("vad_state_machine_update", {
+      previousState,
+      newState,
+      trigger,
+      transition: `${previousState} -> ${newState}`,
+      stateHistory: vadState.stateHistory.slice(-5), // Last 5 states for context
+      ...context
+    });
+    
+    addLogEntry(
+      "vad_state_machine",
+      `VAD STATE MACHINE: ${previousState} -> ${newState} (${trigger}) [ID: ${correlationId}]`
+    );
+    
+    // Log detailed state analysis for complex scenarios
+    if (newState === 'barge_in_detected' || newState === 'conflicting_vad_states') {
+      addLogEntry(
+        "vad_analysis",
+        `COMPLEX VAD SCENARIO: Gemini VAD=${vadState.geminiVadActive}, Frontend VAD=${vadState.frontendVadActive}, Context=${JSON.stringify(context)} [ID: ${correlationId}]`
+      );
+    }
+    
+    return correlationId;
+  }, [logAudioStateCorrelation, addLogEntry, isPlayingRef]);
 
   useEffect(() => {
     isRecordingRef.current = isRecording;
@@ -323,6 +431,15 @@ export const useAudio = (
     if (!audioProcessorRef.current) return;
     audioProcessorRef.current.on("audioData", async (data) => {
       if (!isWebSocketReady) return;
+      
+      // Log audio data reception with correlation
+      const correlationId = logAudioStateCorrelation("mic_audio_received", {
+        audioSize: data.audioData.length,
+        sourceTimestamp: data.timestamp,
+        hasActivity: data.hasActivity,
+        vadDetected: data.vadDetected
+      });
+      
       const glassToGlassLatency = Date.now() - data.timestamp;
       glassToGlassLatencyRef.current.push(glassToGlassLatency);
       if (glassToGlassLatencyRef.current.length > 100)
@@ -347,12 +464,30 @@ export const useAudio = (
         if (result.success) {
           audioChunkSentCountRef.current++;
           lastSendTimeRef.current = Date.now();
+          
+          // Log successful transmission with correlation
+          logAudioStateCorrelation("audio_transmitted_to_gemini", {
+            correlationId,
+            method: result.method,
+            audioSize: data.audioData.length,
+            glassToGlassLatency,
+            transmissionLatency: Date.now() - data.timestamp
+          });
+          
           addLogEntry(
             "audio_send",
-            `SUCCESS: Audio transmission successful via ${result.method}`
+            `SUCCESS: Audio transmission successful via ${result.method} [ID: ${correlationId}]`
           );
         } else {
           audioMetricsRef.current.failedTransmissions++;
+          
+          // Log transmission failure with correlation
+          logAudioStateCorrelation("audio_transmission_failed", {
+            correlationId,
+            attempts: result.attempts.length,
+            audioSize: data.audioData.length
+          });
+          
           addLogEntry(
             "error",
             "CRITICAL FAILURE: All transmission methods exhausted"
@@ -360,6 +495,12 @@ export const useAudio = (
           addLogEntry("debug", `Failed attempts: ${result.attempts.length}`);
         }
       } catch (error) {
+        logAudioStateCorrelation("audio_transmission_error", {
+          correlationId,
+          error: error.message,
+          audioSize: data.audioData.length
+        });
+        
         addLogEntry(
           "error",
           `CRITICAL: Bulletproof transmission system error: ${error.message}`
@@ -368,18 +509,46 @@ export const useAudio = (
       }
     });
     audioProcessorRef.current.on("bargeInDetected", (data) => {
+      // Enhanced barge-in logging with state correlation
+      const correlationId = logAudioStateCorrelation("vad_barge_in_detected", {
+        energy: data.energy,
+        threshold: data.threshold,
+        sourceTimestamp: data.timestamp,
+        geminiPlaybackActive: isPlayingRef.current,
+        bargeInTriggered: isPlayingRef.current
+      });
+      
       addLogEntry(
         "vad_activation",
-        `VAD Activated: User speech detected during playback.`
+        `VAD Activated: User speech detected during playback [ID: ${correlationId}]`
       );
+      
       if (isPlayingRef.current) {
         addLogEntry(
           "barge_in",
-          `User speech detected during playback (energy: ${data.energy.toFixed(
-            3
-          )})`
+          `BARGE-IN TRIGGERED: User speech during Gemini playback (energy: ${data.energy?.toFixed(3)}, threshold: ${data.threshold?.toFixed(3)}) [ID: ${correlationId}]`
         );
         stopSystemAudioPlayback();
+        
+        // Update VAD state machine for barge-in
+        updateVADState('barge_in_detected', 'user_speech_during_gemini_playback', {
+          correlationId,
+          energy: data.energy,
+          threshold: data.threshold,
+          geminiWasPlaying: true
+        });
+        
+        // Log the playback interruption
+        logAudioStateCorrelation("gemini_playback_interrupted", {
+          correlationId,
+          reason: "user_barge_in",
+          energy: data.energy
+        });
+      } else {
+        addLogEntry(
+          "vad_activation",
+          `VAD detected speech but no playback active (energy: ${data.energy?.toFixed(3)}) [ID: ${correlationId}]`
+        );
       }
     });
     audioProcessorRef.current.on("metrics", (data) => {
@@ -406,8 +575,25 @@ export const useAudio = (
         }
       }, 2000);
     });
+    
+    audioProcessorRef.current.on("VAD_STATE_TRANSITION", (data) => {
+      // Log VAD state machine transitions for debugging
+      logAudioStateCorrelation("vad_state_machine_transition", {
+        transition: data.transition,
+        trigger: data.trigger,
+        sourceTimestamp: data.timestamp,
+        context: data.context
+      });
+      
+      addLogEntry(
+        "vad_state_machine",
+        `VAD State: ${data.transition} (${data.trigger}) - Context: ${JSON.stringify(data.context)}`
+      );
+    });
   }, [
     addLogEntry,
+    logAudioStateCorrelation,
+    updateVADState,
     stopSystemAudioPlayback,
     sendAudioChunkWithBackpressure,
     isPlayingRef,
@@ -550,7 +736,13 @@ export const useAudio = (
 
   const handleStartListening = useCallback(
     async (isResuming = false) => {
-      addLogEntry("debug", `handleStartListening called with isResuming=${isResuming}, isSessionActive=${isSessionActive}, isRecording=${isRecordingRef.current}`);
+      // Log microphone start attempt with correlation
+      const correlationId = logAudioStateCorrelation("mic_start_attempt", {
+        isResuming,
+        trigger: isResuming ? "resume" : "start"
+      });
+      
+      addLogEntry("debug", `handleStartListening called with isResuming=${isResuming}, isSessionActive=${isSessionActive}, isRecording=${isRecordingRef.current} [ID: ${correlationId}]`);
       debugLog(`🎤 handleStartListening: isSessionActive=${isSessionActive}, isRecording=${isRecordingRef.current}`);
       
       // Use ref to avoid race condition - check both state and ref
@@ -558,11 +750,19 @@ export const useAudio = (
       debugLog(`🎤 Session check: state=${isSessionActive}, ref=${isSessionActiveRef?.current}, final=${sessionIsReallyActive}`);
       
       if (!sessionIsReallyActive) {
+        logAudioStateCorrelation("mic_start_rejected", {
+          correlationId,
+          reason: "session_not_active"
+        });
         debugLog("🎤 EARLY RETURN: Session not active");
         addLogEntry("warning", "Start listening called but session not active.");
         return;
       }
       if (isRecordingRef.current) {
+        logAudioStateCorrelation("mic_start_rejected", {
+          correlationId,
+          reason: "already_recording"
+        });
         debugLog("🎤 EARLY RETURN: Already listening");
         addLogEntry("info", "Already listening.");
         return;
@@ -608,12 +808,37 @@ export const useAudio = (
         }
         setIsRecording(true);
         setIsMuted(false); // Auto-unmute when recording starts successfully
-        addLogEntry("mic", "Microphone started and automatically unmuted.");
+        
+        // Log successful microphone start with correlation
+        logAudioStateCorrelation("mic_started_successfully", {
+          correlationId,
+          isResuming,
+          autoUnmuted: true,
+          streamTracks: mediaStreamRef.current?.getAudioTracks().length,
+          processorReady: !!audioProcessorRef.current
+        });
+        
+        // Update VAD state machine
+        updateVADState('recording_active', 'microphone_started', {
+          correlationId,
+          isResuming,
+          autoUnmuted: true
+        });
+        
+        addLogEntry("mic", `Microphone started and automatically unmuted [ID: ${correlationId}]`);
         if (networkResilienceManagerRef.current) {
           networkResilienceManagerRef.current.notifyMicActive(true);
         }
       } catch (error) {
-        addLogEntry("error", `Could not start microphone: ${error.message}`);
+        // Log microphone start error with correlation
+        logAudioStateCorrelation("mic_start_error", {
+          correlationId,
+          errorName: error.name,
+          errorMessage: error.message,
+          isResuming
+        });
+        
+        addLogEntry("error", `Could not start microphone: ${error.message} [ID: ${correlationId}]`);
         debugError("Error starting microphone:", error);
         
         // More specific error handling
@@ -640,7 +865,7 @@ export const useAudio = (
         }
       }
     },
-    [addLogEntry, isSessionActive, initializeEnhancedAudioProcessor]
+    [addLogEntry, logAudioStateCorrelation, updateVADState, isSessionActive, initializeEnhancedAudioProcessor]
   );
 
   const handlePauseListening = useCallback(() => {

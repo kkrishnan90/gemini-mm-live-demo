@@ -340,6 +340,12 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
           
         case 'SET_SYSTEM_PLAYING':
           this.isSystemPlaying = data.playing;
+          this.logVADStateTransition(
+            this.isSystemPlaying ? 'inactive' : 'system_playing', 
+            this.isSystemPlaying ? 'system_playing' : 'inactive',
+            'system_playback_change',
+            { geminiPlaying: data.playing, correlationId: data.correlation_id }
+          );
           break;
           
         case 'UPDATE_CONFIG':
@@ -399,6 +405,27 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
    */
   updateVADConfig(config) {
     Object.assign(this.vadConfig, config);
+  }
+  
+  /**
+   * Log VAD state transitions for debugging and correlation
+   */
+  logVADStateTransition(fromState, toState, trigger, context = {}) {
+    this.port.postMessage({
+      type: 'VAD_STATE_TRANSITION',
+      data: {
+        transition: `${fromState} -> ${toState}`,
+        trigger,
+        timestamp: Date.now(),
+        context: {
+          ...context,
+          frontendVadEnabled: this.vadConfig.enabled,
+          isSystemPlaying: this.isSystemPlaying,
+          isRecording: this.isRecording,
+          isMuted: this.isMuted
+        }
+      }
+    });
   }
   
   /**
@@ -622,14 +649,31 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
       if (this.vadConfig.enabled) {
         vadResult = this.detectVoiceActivity(processedSamples);
         
-        // Barge-in detection
+        // Enhanced barge-in detection with VAD state correlation
         if (vadResult.isSpeechActive && this.isSystemPlaying) {
+          const correlationId = `barge_in_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
+          // Log VAD state transition for barge-in
+          this.logVADStateTransition(
+            'gemini_playback_active',
+            'user_barge_in_detected',
+            'voice_activity_during_playback',
+            {
+              energy: vadResult.energy,
+              threshold: vadResult.adaptiveThreshold,
+              correlationId
+            }
+          );
+          
           this.port.postMessage({
             type: 'BARGE_IN_DETECTED',
             data: {
               energy: vadResult.energy,
               threshold: vadResult.adaptiveThreshold,
-              timestamp: inputTimestamp
+              timestamp: inputTimestamp,
+              correlationId,
+              geminiPlaybackActive: this.isSystemPlaying,
+              vadStateTransition: 'gemini_playback_active -> user_barge_in_detected'
             }
           });
         }
@@ -650,6 +694,9 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
           // Measure latency
           const latency = this.measureLatency(inputTimestamp);
           
+          // Generate correlation ID for timing chain analysis
+          const correlationId = `worklet_audio_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          
           this.port.postMessage({
             type: 'AUDIO_DATA',
             data: {
@@ -657,8 +704,17 @@ class EnhancedAudioProcessor extends AudioWorkletProcessor {
               sampleRate: this.config.sampleRate,
               channelCount: this.config.channelCount,
               hasActivity: vadResult?.isSpeechActive ?? false,
+              vadDetected: vadResult?.isSpeechActive ?? false,
               latency: latency,
-              timestamp: inputTimestamp
+              timestamp: inputTimestamp,
+              correlationId,
+              processingTimestamp: Date.now(),
+              audioProcessingChain: {
+                microphoneCapture: inputTimestamp,
+                audioWorkletProcessing: Date.now(),
+                vadProcessed: vadResult ? Date.now() : null,
+                sampleSize: samplesRead
+              }
             }
           });
         }

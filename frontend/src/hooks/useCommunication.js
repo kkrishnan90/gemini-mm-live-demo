@@ -544,6 +544,24 @@ export const useCommunication = (
                   "audio_flow_control",
                   `Buffer pressure detected - backend will handle optimization`
                 );
+            } else if (receivedData.type === "gemini_playback_state") {
+              // Handle Gemini playback state for VAD correlation
+              const { playing, sequence, correlation_id, vad_should_activate } = receivedData;
+              
+              addLogEntryRef.current(
+                "gemini_playback_correlation",
+                `Gemini playback ${playing ? 'STARTED' : 'STOPPED'}: seq=${sequence}, vad_should_activate=${vad_should_activate} [ID: ${correlation_id}]`
+              );
+              
+              // Update global playing state for VAD coordination
+              if (playing && isPlayingRef) {
+                // Note: We don't directly set isPlayingRef here as that's managed by audio playback
+                // This is for correlation logging only
+                addLogEntryRef.current(
+                  "vad_state_correlation",
+                  `Backend signaled Gemini response start - frontend VAD should ${vad_should_activate ? 'REMAIN ACTIVE for barge-in' : 'defer to Gemini VAD'} [ID: ${correlation_id}]`
+                );
+              }
             } else if (receivedData.type === "audio_truncation") {
               addLogEntryRef.current(
                 "error",
