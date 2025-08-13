@@ -3,6 +3,7 @@ Handles client input and forwards to Gemini Live API.
 """
 
 import asyncio
+import time
 from typing import Dict, Any
 from websockets.exceptions import ConnectionClosedOK
 
@@ -27,12 +28,24 @@ class ClientInputHandler:
                 try:
                     client_data = await asyncio.wait_for(websocket.receive(), timeout=0.2)
                     
+                    receive_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+                    
                     if isinstance(client_data, str):
+                        print(f"\\033[94m[{receive_timestamp}] 📝 CLIENT_TEXT: Received text message from client\\033[0m")
                         await self._handle_text_message(client_data)
                     elif isinstance(client_data, bytes):
+                        # Only log audio occasionally to avoid spam
+                        if hasattr(self, '_audio_log_counter'):
+                            self._audio_log_counter += 1
+                        else:
+                            self._audio_log_counter = 1
+                            
+                        if self._audio_log_counter % 100 == 1:  # Log every 100th audio packet
+                            print(f"\\033[94m[{receive_timestamp}] 🎤 CLIENT_AUDIO: Received audio data from client (packet #{self._audio_log_counter})\\033[0m")
+                        
                         await self._handle_audio_data(client_data)
                     else:
-                        print(f"Backend: Unexpected data type: {type(client_data)}")
+                        print(f"\\033[94m[{receive_timestamp}] ❓ CLIENT_UNKNOWN: Unexpected data type: {type(client_data)}\\033[0m")
                         
                 except asyncio.TimeoutError:
                     if not self.session_state['active_processing']:

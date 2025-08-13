@@ -7,6 +7,7 @@ including function declarations, implementations, and the tool registry.
 
 from .registry import travel_tool, available_functions
 from .implementations import (
+    take_a_nap,
     NameCorrectionAgent,
     SpecialClaimAgent,
     Enquiry_Tool,
@@ -22,6 +23,7 @@ from .implementations import (
 __all__ = [
     "travel_tool",
     "available_functions",
+    "take_a_nap",
     "NameCorrectionAgent",
     "SpecialClaimAgent",
     "Enquiry_Tool",

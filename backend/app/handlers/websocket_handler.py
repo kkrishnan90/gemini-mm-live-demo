@@ -17,7 +17,7 @@ from app.handlers.client_input_handler import ClientInputHandler
 from app.handlers.gemini_response_handler import GeminiResponseHandler
 from app.utils.audio import AudioBuffer
 from app.tools import (
-    NameCorrectionAgent, SpecialClaimAgent, Enquiry_Tool,
+    take_a_nap, NameCorrectionAgent, SpecialClaimAgent, Enquiry_Tool,
     Eticket_Sender_Agent, ObservabilityAgent, DateChangeAgent,
     Connect_To_Human_Tool, Booking_Cancellation_Agent,
     Flight_Booking_Details_Agent, Webcheckin_And_Boarding_Pass_Agent
@@ -29,6 +29,7 @@ class WebSocketHandler:
     
     def __init__(self):
         self.available_functions = {
+            "take_a_nap": take_a_nap,
             "NameCorrectionAgent": NameCorrectionAgent,
             "SpecialClaimAgent": SpecialClaimAgent,
             "Enquiry_Tool": Enquiry_Tool,

@@ -95,11 +95,14 @@ class CallbackBasedFunctionRegistry:
             func = self.functions[function_name]
             
             exec_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-            print(f"\\033[92m[{exec_timestamp}] 🛠️ REGISTRY_EXEC_START: Executing {function_name} with args: {arguments}\\033[0m")
+            print(f"\033[92m[{exec_timestamp}] 🛠️ REGISTRY_EXEC_START: Executing {function_name} with args: {arguments}\033[0m")
 
             # Execute the function
             start_time = time.time()
-            if asyncio.iscoroutinefunction(func):
+            if function_name == "Flight_Booking_Details_Agent":
+                # Special handling for the non-blocking agent
+                result = func(self.session, **arguments)
+            elif asyncio.iscoroutinefunction(func):
                 result = await func(**arguments)
             else:
                 # Run sync function in thread pool to avoid blocking
@@ -110,7 +113,7 @@ class CallbackBasedFunctionRegistry:
             duration = (end_time - start_time) * 1000
             
             result_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-            print(f"\\033[92m[{result_timestamp}] 🎉 REGISTRY_EXEC_COMPLETE: {function_name} completed in {duration:.2f}ms\\033[0m")
+            print(f"\033[92m[{result_timestamp}] 🎉 REGISTRY_EXEC_COMPLETE: {function_name} completed in {duration:.2f}ms\033[0m")
 
             return {
                 'result': result,
@@ -121,7 +124,7 @@ class CallbackBasedFunctionRegistry:
 
         except Exception as e:
             error_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-            print(f"\\033[91m[{error_timestamp}] ❌ REGISTRY_EXEC_ERROR: Error executing {function_name}: {e}\\033[0m")
+            print(f"\033[91m[{error_timestamp}] ❌ REGISTRY_EXEC_ERROR: Error executing {function_name}: {e}\033[0m")
             return {
                 'error': str(e),
                 'status': 'error',
@@ -141,7 +144,7 @@ class CallbackBasedFunctionRegistry:
     ) -> asyncio.Task:
         """Start function execution in background and return the task."""
         task_start_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-        print(f"\\033[93m[{task_start_timestamp}] 🚀 REGISTRY_TASK_START: Starting background task for {function_name}\\033[0m")
+        print(f"\033[93m[{task_start_timestamp}] 🚀 REGISTRY_TASK_START: Starting background task for {function_name}\033[0m")
         
         task = asyncio.create_task(
             self.execute_function_async(function_name, arguments, call_id)
@@ -157,13 +160,26 @@ class CallbackBasedFunctionRegistry:
             result = await task
             
             completion_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-            print(f"\\033[93m[{completion_timestamp}] ✅ REGISTRY_CALLBACK_COMPLETE: Function {function_name} completed via callback\\033[0m")
+            print(f"\033[93m[{completion_timestamp}] ✅ REGISTRY_CALLBACK_COMPLETE: Function {function_name} completed via callback\033[0m")
             
             # Extract the actual result message
             if isinstance(result, dict) and 'result' in result:
                 result_message = result['result']
             else:
                 result_message = str(result)
+
+            # For the non-blocking agent, the immediate response is the "PENDING" message.
+            # The final response is sent later by the background task.
+            if function_name == "Flight_Booking_Details_Agent" and isinstance(result_message, dict) and result_message.get("status") == "PENDING":
+                # Send the pending response to unblock the model
+                function_response = types.FunctionResponse(
+                    name=function_name,
+                    response=result_message,
+                    id=call_id
+                )
+                if self.session:
+                    await self.session.send_tool_response(function_responses=[function_response])
+                return
             
             # Send function response back to Gemini and allow model to continue
             function_response = types.FunctionResponse(
@@ -177,11 +193,11 @@ class CallbackBasedFunctionRegistry:
                 await self.session.send_tool_response(function_responses=[function_response])
                 
                 response_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-                print(f"\\033[93m[{response_timestamp}] 📤 REGISTRY_RESPONSE_SENT: Function response sent for {function_name} - model should continue conversation\\033[0m")
+                print(f"\033[93m[{response_timestamp}] 📤 REGISTRY_RESPONSE_SENT: Function response sent for {function_name} - model should continue conversation\033[0m")
                 
         except Exception as e:
             error_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-            print(f"\\033[91m[{error_timestamp}] ❌ REGISTRY_CALLBACK_ERROR: Error in callback for {function_name}: {e}\\033[0m")
+            print(f"\033[91m[{error_timestamp}] ❌ REGISTRY_CALLBACK_ERROR: Error in callback for {function_name}: {e}\033[0m")
 
     def start_function_with_callback(
         self,
@@ -203,7 +219,7 @@ class CallbackBasedFunctionRegistry:
         )
         
         callback_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-        print(f"\\033[96m[{callback_timestamp}] 🔄 REGISTRY_CALLBACK_SET: Callback set for {function_name} (ID: {call_id})\\033[0m")
+        print(f"\033[96m[{callback_timestamp}] 🔄 REGISTRY_CALLBACK_SET: Callback set for {function_name} (ID: {call_id})\033[0m")
         
         return call_id
 

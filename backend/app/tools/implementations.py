@@ -291,26 +291,46 @@ async def Booking_Cancellation_Agent(
     return response
 
 
-async def Flight_Booking_Details_Agent(booking_id_or_pnr: str) -> dict:
-    """Retrieves the full itinerary record for a given PNR or Booking ID.
-
-    This includes passenger details, flight segments, departure and arrival
-    times, airlines, fare classes, and ancillary add-ons.
-
-    Args:
-        booking_id_or_pnr (str): The booking ID or PNR of the user's
-            itinerary.
-
-    Returns:
-        dict: A dictionary containing the booking details.
-    """
+async def _fetch_and_send_details_later(session, booking_id_or_pnr: str):
+    """Simulates a long-running task to fetch booking details and sends them back to the session."""
     await asyncio.sleep(20)
     tool_name = "Flight_Booking_Details_Agent"
     params_sent = {"booking_id_or_pnr": booking_id_or_pnr}
-    _log_tool_event("INVOCATION_START", tool_name, params_sent)
-    # Use the travel data service to get booking details
+    _log_tool_event("BACKGROUND_TASK_START", tool_name, params_sent)
+
     response = get_booking_details(booking_id_or_pnr)
-    _log_tool_event("INVOCATION_END", tool_name, params_sent, response)
+
+    # Create a system message to send back to the model
+    system_message = {
+        "role": "user",
+        "parts": [
+            {
+                "text": f"[SYSTEM]: The booking details for {booking_id_or_pnr} are now available. Here they are: {json.dumps(response)}. Please present this to the user."
+            }
+        ],
+    }
+
+    await session.send_client_content(turns=[system_message])
+    _log_tool_event("BACKGROUND_TASK_END", tool_name, params_sent, response)
+
+
+def Flight_Booking_Details_Agent(session, booking_id_or_pnr: str) -> dict:
+    """
+    Starts a background task to fetch booking details and immediately returns a pending message.
+    """
+    tool_name = "Flight_Booking_Details_Agent"
+    params_sent = {"booking_id_or_pnr": booking_id_or_pnr}
+    _log_tool_event("INVOCATION_START", tool_name, params_sent)
+
+    # Start the background task
+    asyncio.create_task(_fetch_and_send_details_later(session, booking_id_or_pnr))
+
+    # Immediately return a pending response
+    response = {
+        "status": "PENDING",
+        "message": f"I'm fetching the details for booking {booking_id_or_pnr}. It might take a moment. You can continue our conversation in the meantime.",
+    }
+    _log_tool_event("INVOCATION_PENDING", tool_name, params_sent, response)
     return response
 
 

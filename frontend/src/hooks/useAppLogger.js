@@ -18,5 +18,9 @@ export const useAppLogger = () => {
     setMessages((prev) => [...prev, newEntry]);
   }, []);
 
-  return { messages, addLogEntry, setMessages };
+  const clearLogs = useCallback(() => {
+    setMessages([]);
+  }, []);
+
+  return { messages, addLogEntry, setMessages, clearLogs };
 };

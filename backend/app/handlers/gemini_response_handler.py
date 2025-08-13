@@ -5,6 +5,7 @@ Handles responses from Gemini Live API and forwards to client.
 import asyncio
 import uuid
 import traceback
+import time
 from typing import Dict, Any, Callable
 
 from quart import websocket
@@ -60,28 +61,46 @@ class GeminiResponseHandler:
     
     async def _process_response(self, response):
         """Process individual response from Gemini."""
+        response_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+        
         try:
             # Handle session updates
             await self._handle_session_updates(response)
             
             # Handle audio data
             if response.data is not None:
+                print(f"\\033[95m[{response_timestamp}] 🎵 GEMINI_AUDIO: Received audio data from Gemini\\033[0m")
                 await self.audio_processor.process_audio_response(response.data)
             
             # Handle server content
             elif response.server_content:
+                print(f"\\033[95m[{response_timestamp}] 💬 GEMINI_CONTENT: Received server content from Gemini\\033[0m")
                 await self._handle_server_content(response.server_content)
             
             # Handle tool calls
             elif response.tool_call:
+                tool_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+                print(f"\\033[95m[{tool_timestamp}] 🔧 GEMINI_TOOL_CALL: Received tool call from Gemini - PROCESSING NOW\\033[0m")
+                
+                # This should be NON-BLOCKING
+                start_tool_time = time.time()
                 await self.tool_processor.process_tool_call(response.tool_call)
+                end_tool_time = time.time()
+                tool_duration = (end_tool_time - start_tool_time) * 1000
+                
+                post_tool_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+                print(f"\\033[95m[{post_tool_timestamp}] ✅ TOOL_PROCESSING_RETURNED: Tool processing returned in {tool_duration:.2f}ms - GEMINI SHOULD CONTINUE NOW\\033[0m")
             
             # Handle errors
             elif hasattr(response, 'error') and response.error:
+                print(f"\\033[95m[{response_timestamp}] ❌ GEMINI_ERROR: Received error from Gemini\\033[0m")
                 await self._handle_error(response.error)
+            else:
+                print(f"\\033[95m[{response_timestamp}] ❓ GEMINI_UNKNOWN: Received unknown response type from Gemini\\033[0m")
                 
         except Exception as e:
-            print(f"Backend: Error processing response: {e}")
+            error_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+            print(f"\\033[91m[{error_timestamp}] ❌ RESPONSE_ERROR: Error processing response: {e}\\033[0m")
             traceback.print_exc()
             self.session_state['active_processing'] = False
     
