@@ -68,6 +68,22 @@ class ToolCallProcessor:
                 "message": f"Function {fc.name} not implemented or available."
             }
         
+        # For NON_BLOCKING functions, add scheduling to control when Gemini announces results
+        # INTERRUPT: Stop current speech and announce results immediately  
+        # WHEN_IDLE: Wait until current response is complete before announcing
+        # SILENT: Use results without announcing them
+        if function_response_content and "status" in function_response_content and function_response_content["status"] == "SUCCESS":
+            # Choose scheduling based on function type
+            if fc.name in ["Flight_Booking_Details_Agent", "Booking_Cancellation_Agent"]:
+                # For booking details and cancellations, interrupt to provide immediate feedback
+                function_response_content["scheduling"] = types.FunctionResponseScheduling.INTERRUPT
+            elif fc.name in ["Eticket_Sender_Agent", "Webcheckin_And_Boarding_Pass_Agent", "SpecialClaimAgent"]:
+                # For background tasks like sending emails, wait until current response is complete
+                function_response_content["scheduling"] = types.FunctionResponseScheduling.WHEN_IDLE
+            else:
+                # Default to WHEN_IDLE for other functions
+                function_response_content["scheduling"] = types.FunctionResponseScheduling.WHEN_IDLE
+        
         return types.FunctionResponse(
             id=fc.id,
             name=fc.name,
