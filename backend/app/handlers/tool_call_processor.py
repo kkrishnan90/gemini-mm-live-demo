@@ -68,14 +68,8 @@ class ToolCallProcessor:
                 "message": f"Function {fc.name} not implemented or available."
             }
         
-        # For NON_BLOCKING functions, add scheduling to control when Gemini announces results
-        # SILENT: Functions execute in background without interrupting conversation
-        # The AI will naturally incorporate results into ongoing conversation flow
-        if function_response_content and "status" in function_response_content and function_response_content["status"] == "SUCCESS":
-            # Use SILENT scheduling for seamless conversational experience
-            # This allows users to continue talking while functions execute in background
-            # The AI assistant will naturally use the function results in subsequent responses
-            function_response_content["scheduling"] = types.FunctionResponseScheduling.SILENT
+        # Note: NON_BLOCKING behavior and scheduling are not supported in Vertex AI
+        # Functions will execute synchronously with the 5-second delay as requested
         
         return types.FunctionResponse(
             id=fc.id,
