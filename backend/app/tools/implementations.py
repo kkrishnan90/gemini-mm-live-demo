@@ -9,6 +9,7 @@ the business logic for handling various travel-related operations.
 import json
 from datetime import datetime, timezone
 import logging
+import asyncio
 from app.data.travel_mock_data import get_booking_details
 
 # Configure logging
@@ -57,6 +58,7 @@ async def NameCorrectionAgent(correction_type: str, fn: str, ln: str) -> dict:
         dict: A dictionary containing the status of the operation and a
               confirmation message.
     """
+    await asyncio.sleep(5)
     tool_name = "NameCorrectionAgent"
     params_sent = {"correction_type": correction_type, "fn": fn, "ln": ln}
     _log_tool_event("INVOCATION_START", tool_name, params_sent)
@@ -84,6 +86,7 @@ async def SpecialClaimAgent(claim_type: str) -> dict:
         dict: A dictionary containing the status of the operation and a
               confirmation message.
     """
+    await asyncio.sleep(5)
     tool_name = "SpecialClaimAgent"
     params_sent = {"claim_type": claim_type}
     _log_tool_event("INVOCATION_START", tool_name, params_sent)
@@ -106,6 +109,7 @@ async def Enquiry_Tool() -> dict:
         dict: A dictionary containing the status of the operation and a
               mock response message.
     """
+    await asyncio.sleep(5)
     tool_name = "Enquiry_Tool"
     params_sent = {}
     _log_tool_event("INVOCATION_START", tool_name, params_sent)
@@ -129,6 +133,7 @@ async def Eticket_Sender_Agent(booking_id_or_pnr: str) -> dict:
         dict: A dictionary containing the status of the operation and a
               confirmation message.
     """
+    await asyncio.sleep(5)
     tool_name = "Eticket_Sender_Agent"
     params_sent = {"booking_id_or_pnr": booking_id_or_pnr}
     _log_tool_event("INVOCATION_START", tool_name, params_sent)
@@ -152,6 +157,7 @@ async def ObservabilityAgent(operation_type: str) -> dict:
         dict: A dictionary containing the status of the operation and a
               confirmation message.
     """
+    await asyncio.sleep(5)
     tool_name = "ObservabilityAgent"
     params_sent = {"operation_type": operation_type}
     _log_tool_event("INVOCATION_START", tool_name, params_sent)
@@ -177,6 +183,7 @@ async def DateChangeAgent(action: str, sector_info: list) -> dict:
         dict: A dictionary containing the status of the operation and a
               confirmation message.
     """
+    await asyncio.sleep(5)
     tool_name = "DateChangeAgent"
     params_sent = {"action": action, "sector_info": sector_info}
     _log_tool_event("INVOCATION_START", tool_name, params_sent)
@@ -204,6 +211,7 @@ async def Connect_To_Human_Tool(
         dict: A dictionary containing the status of the operation and a
               confirmation message.
     """
+    await asyncio.sleep(5)
     tool_name = "Connect_To_Human_Tool"
     params_sent = {
         "reason_of_invoke": reason_of_invoke,
@@ -240,6 +248,7 @@ async def Booking_Cancellation_Agent(
         dict: A dictionary containing the status of the operation and a
               confirmation message.
     """
+    await asyncio.sleep(5)
     tool_name = "Booking_Cancellation_Agent"
     params_sent = {
         "action": action,
@@ -270,6 +279,7 @@ async def Flight_Booking_Details_Agent(booking_id_or_pnr: str) -> dict:
     Returns:
         dict: A dictionary containing the booking details.
     """
+    await asyncio.sleep(5)
     tool_name = "Flight_Booking_Details_Agent"
     params_sent = {"booking_id_or_pnr": booking_id_or_pnr}
     _log_tool_event("INVOCATION_START", tool_name, params_sent)
@@ -294,6 +304,7 @@ async def Webcheckin_And_Boarding_Pass_Agent(journeys: list) -> dict:
         dict: A dictionary containing the status of the operation and a
               confirmation message.
     """
+    await asyncio.sleep(5)
     tool_name = "Webcheckin_And_Boarding_Pass_Agent"
     params_sent = {"journeys": journeys}
     _log_tool_event("INVOCATION_START", tool_name, params_sent)
