@@ -64,6 +64,9 @@ class GeminiResponseHandler:
 
                     # Enhanced tool response delivery - coordinate with speech state
                     if response.server_content and response.server_content.turn_complete:
+                        if self.is_tool_response:
+                            print("\033[96m[INFO] Resetting tool response flag on turn completion.\033[0m")
+                            self.is_tool_response = False
                         await self._deliver_queued_tool_responses("turn_complete")
                     
                     # Also check for speech completion based on audio gap
@@ -93,8 +96,6 @@ class GeminiResponseHandler:
             # Handle audio data
             if response.data is not None:
                 async with self.audio_processing_lock:
-                    if self.is_tool_response:
-                        self.is_tool_response = False
                     print(f"\033[95m[{response_timestamp}] 🎵 GEMINI_AUDIO: Received audio data from Gemini\033[0m")
                     
                     # Track speech state - Gemini is speaking when sending audio
