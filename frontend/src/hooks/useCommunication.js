@@ -142,6 +142,10 @@ export const useCommunication = (
   }, []);
 
   const playAudioFromQueue = useCallback(async () => {
+    addLogEntryRef.current(
+      "diag_play_audio_start",
+      `[DIAG] playAudioFromQueue called. isPlaying: ${isPlayingRef.current}, queue size: ${jitterBufferRef.current.length}`
+    );
     const currentTime = new Date().toTimeString().split(' ')[0];
     
     // Improved jitter buffer logic - check if we should start playback early
@@ -250,6 +254,10 @@ export const useCommunication = (
       }
 
       source.onended = () => {
+        addLogEntryRef.current(
+          "diag_chunk_ended",
+          `[DIAG] Chunk playback ended. Queue size: ${jitterBufferRef.current.length}, isExpectingMoreChunks: ${chunkTrackingRef.current.isExpectingMoreChunks}`
+        );
         const currentTime = new Date().toTimeString().split(' ')[0];
         const tracking = chunkTrackingRef.current;
         
@@ -691,6 +699,7 @@ export const useCommunication = (
                 );
               }
             } else if (receivedData.type === "interrupt_playback") {
+              addLogEntryRef.current("diag_interrupt_received", "[DIAG] interrupt_playback message received from backend.");
               // Handle interruption signal from backend
               addLogEntryRef.current(
                 "interrupt",
@@ -754,6 +763,10 @@ export const useCommunication = (
             );
           }
         } else if (event.data instanceof ArrayBuffer) {
+          addLogEntryRef.current(
+            "diag_audio_chunk_received",
+            `[DIAG] Audio chunk received. Queue size: ${jitterBufferRef.current.length}, Pending queue size: ${chunkTrackingRef.current.pendingGenerationQueue.length}`
+          );
           // Enhanced audio chunk tracking
           const tracking = chunkTrackingRef.current;
           tracking.totalChunksReceived++;
@@ -824,6 +837,11 @@ export const useCommunication = (
                                            !hasQueuedAudio && 
                                            !hasActiveTurn && 
                                            !hasPendingTurn;
+          
+          addLogEntryRef.current(
+            "diag_queueing_decision",
+            `[DIAG] shouldQueueAsNewGeneration: ${shouldQueueAsNewGeneration}. State: { currentlyPlaying: ${currentlyPlaying}, hasQueuedAudio: ${hasQueuedAudio}, hasActiveTurn: ${hasActiveTurn}, hasPendingTurn: ${hasPendingTurn} }`
+          );
           
           if (shouldQueueAsNewGeneration) {
             tracking.pendingGenerationQueue.push(event.data);

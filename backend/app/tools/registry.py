@@ -185,12 +185,20 @@ class CallbackBasedFunctionRegistry:
                 id=call_id
             )
             
-            if self.session:
-                # Send the function response and allow model to process and respond
-                await self.session.send_tool_response(function_responses=[function_response])
+            # Queue the function response instead of sending immediately
+            # This allows the GeminiResponseHandler to send it when Gemini completes its current speech
+            if self.tool_results_queue:
+                await self.tool_results_queue.put(function_response)
                 
                 response_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-                print(f"\033[93m[{response_timestamp}] 📤 REGISTRY_RESPONSE_SENT: Function response sent for {function_name} - model should continue conversation\033[0m")
+                print(f"\033[93m[{response_timestamp}] 📤 REGISTRY_RESPONSE_QUEUED: Function response queued for {function_name} - will be sent when turn completes\033[0m")
+            else:
+                # Fallback to immediate sending if no queue available
+                if self.session:
+                    await self.session.send_tool_response(function_responses=[function_response])
+                    
+                    response_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+                    print(f"\033[93m[{response_timestamp}] 📤 REGISTRY_RESPONSE_SENT: Function response sent immediately for {function_name} (no queue)\033[0m")
                 
         except Exception as e:
             error_timestamp = time.strftime("%H:%M:%S.%f")[:-3]

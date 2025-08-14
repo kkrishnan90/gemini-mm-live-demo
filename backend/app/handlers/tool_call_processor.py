@@ -110,19 +110,19 @@ class ToolCallProcessor:
             func_call_end = time.time()
             func_duration = (func_call_end - func_call_start) * 1000
             
-            # Send individual response immediately when ready
+            # Queue individual response instead of sending immediately
             send_start_time = time.time()
             send_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-            print(f"\\033[93m[{send_timestamp}] 📤 RESPONSE_SEND_START: Sending response for {fc.name} to Gemini (function took {func_duration:.2f}ms)\\033[0m")
+            print(f"\\033[93m[{send_timestamp}] 📤 RESPONSE_QUEUE_START: Queueing response for {fc.name} (function took {func_duration:.2f}ms)\\033[0m")
             
-            await self.session.send_tool_response(function_responses=[function_response])
+            await self.tool_results_queue.put(function_response)
             
             send_end_time = time.time()
             send_end_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
             send_duration = (send_end_time - send_start_time) * 1000
             total_duration = (send_end_time - exec_start_time) * 1000
             
-            print(f"\\033[93m[{send_end_timestamp}] ✅ FUNC_COMPLETE: {fc.name} completed and response sent! (send took {send_duration:.2f}ms, total: {total_duration:.2f}ms)\\033[0m")
+            print(f"\\033[93m[{send_end_timestamp}] ✅ FUNC_COMPLETE: {fc.name} completed and response queued! (queue took {send_duration:.2f}ms, total: {total_duration:.2f}ms)\\033[0m")
             
         except Exception as e:
             error_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
@@ -137,9 +137,10 @@ class ToolCallProcessor:
                 }
             )
             try:
-                await self.session.send_tool_response(function_responses=[error_response])
-            except Exception as send_error:
-                print(f"\\033[91m[{error_timestamp}] SEND_ERROR: Failed to send error response: {send_error}\\033[0m")
+                await self.tool_results_queue.put(error_response)
+                print(f"\\033[91m[{error_timestamp}] ERROR_RESPONSE_QUEUED: Error response queued for {fc.name}\\033[0m")
+            except Exception as queue_error:
+                print(f"\\033[91m[{error_timestamp}] QUEUE_ERROR: Failed to queue error response: {queue_error}\\033[0m")
     
     async def _execute_function_call(self, fc) -> types.FunctionResponse:
         """Execute a single function call."""

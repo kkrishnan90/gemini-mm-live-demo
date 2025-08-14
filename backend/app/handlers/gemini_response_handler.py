@@ -29,10 +29,25 @@ class GeminiResponseHandler:
         self.available_functions = available_functions
         self.tool_results_queue = tool_results_queue
         
+        # Speech state tracking for coordinated tool response delivery
+        self.speech_state = {
+            'is_gemini_speaking': False,
+            'current_turn_id': None,
+            'last_audio_timestamp': None,
+            'speech_start_time': None,
+            'pending_tool_responses': 0
+        }
+        
         # Initialize processors
         self.audio_processor = AudioProcessor(session_state)
         self.transcription_processor = TranscriptionProcessor(session_state)
         self.tool_processor = ToolCallProcessor(session, available_functions, tool_results_queue)
+        self.is_tool_response = False
+        self.audio_processing_lock = asyncio.Lock()
+
+    def set_is_tool_response(self, value: bool):
+        """Sets the flag to indicate the next response is from a tool call."""
+        self.is_tool_response = value
     
     async def handle_gemini_responses(self):
         """Main Gemini response handling loop."""
@@ -47,12 +62,12 @@ class GeminiResponseHandler:
                     
                     await self._process_response(response)
 
-                    # Graceful delivery of tool results
+                    # Enhanced tool response delivery - coordinate with speech state
                     if response.server_content and response.server_content.turn_complete:
-                        if not self.tool_results_queue.empty():
-                            result_to_send = await self.tool_results_queue.get()
-                            await self.session.send_client_content(turns=[result_to_send])
-                            self.tool_results_queue.task_done()
+                        await self._deliver_queued_tool_responses("turn_complete")
+                    
+                    # Also check for speech completion based on audio gap
+                    await self._check_speech_completion_and_deliver_responses()
                     
                     if not self.session_state['active_processing']:
                         break
@@ -77,8 +92,19 @@ class GeminiResponseHandler:
             
             # Handle audio data
             if response.data is not None:
-                print(f"\\033[95m[{response_timestamp}] 🎵 GEMINI_AUDIO: Received audio data from Gemini\\033[0m")
-                await self.audio_processor.process_audio_response(response.data)
+                async with self.audio_processing_lock:
+                    if self.is_tool_response:
+                        self.is_tool_response = False
+                    print(f"\033[95m[{response_timestamp}] 🎵 GEMINI_AUDIO: Received audio data from Gemini\033[0m")
+                    
+                    # Track speech state - Gemini is speaking when sending audio
+                    if not self.speech_state['is_gemini_speaking']:
+                        self.speech_state['is_gemini_speaking'] = True
+                        self.speech_state['speech_start_time'] = time.time()
+                        print(f"\\033[96m[{response_timestamp}] 🗣️ SPEECH_START: Gemini started speaking\033[0m")
+                    
+                    self.speech_state['last_audio_timestamp'] = time.time()
+                    await self.audio_processor.process_audio_response(response.data)
             
             # Handle server content
             elif response.server_content:
@@ -142,11 +168,12 @@ class GeminiResponseHandler:
         print("Backend: Gemini server sent INTERRUPTED signal.")
         print("!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         
-        try:
-            await websocket.send_json({"type": "interrupt_playback"})
-        except Exception as send_exc:
-            print(f"Backend: Error sending interrupt_playback signal: {send_exc}")
-            self.session_state['active_processing'] = False
+        if not self.is_tool_response:
+            try:
+                await websocket.send_json({"type": "interrupt_playback"})
+            except Exception as send_exc:
+                print(f"Backend: Error sending interrupt_playback signal: {send_exc}")
+                self.session_state['active_processing'] = False
     
     async def _handle_unhandled_content(self, server_content):
         """Handle unhandled server content."""
@@ -183,6 +210,59 @@ class GeminiResponseHandler:
             unhandled_text = server_content.output_text
         
         return unhandled_text
+    
+    async def _deliver_queued_tool_responses(self, trigger_reason: str):
+        """Deliver all queued tool responses with coordination logging."""
+        if self.tool_results_queue.empty():
+            return
+            
+        response_count = 0
+        while not self.tool_results_queue.empty():
+            function_response = await self.tool_results_queue.get()
+            
+            # Check if it's a FunctionResponse object or needs to be sent differently
+            if hasattr(function_response, 'name') and hasattr(function_response, 'response'):
+                # It's a FunctionResponse object - send as tool response
+                self.is_tool_response = True
+                await self.session.send_tool_response(function_responses=[function_response])
+                
+                # Log the coordinated sending
+                delivery_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+                print(f"\\033[96m[{delivery_timestamp}] 🎯 COORDINATED_DELIVERY: Sent tool response for {function_response.name} (trigger: {trigger_reason})\\033[0m")
+            else:
+                # It's some other format - use original send_client_content method
+                await self.session.send_client_content(turns=[function_response])
+                
+                # Log the coordinated sending
+                delivery_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+                print(f"\\033[96m[{delivery_timestamp}] 🎯 COORDINATED_DELIVERY: Sent client content (trigger: {trigger_reason})\\033[0m")
+            
+            self.tool_results_queue.task_done()
+            response_count += 1
+        
+        # Update speech state
+        if response_count > 0:
+            self.speech_state['is_gemini_speaking'] = False
+            self.speech_state['pending_tool_responses'] = max(0, self.speech_state['pending_tool_responses'] - response_count)
+            print(f"\\033[96m[{time.strftime('%H:%M:%S.%f')[:-3]}] ✅ DELIVERY_COMPLETE: Delivered {response_count} tool responses, speech state reset\\033[0m")
+    
+    async def _check_speech_completion_and_deliver_responses(self):
+        """Check if speech has completed based on audio timing and deliver queued responses."""
+        current_time = time.time()
+        
+        # Only check if we think Gemini is speaking and we have queued responses
+        if not self.speech_state['is_gemini_speaking'] or self.tool_results_queue.empty():
+            return
+            
+        # Check if enough time has passed since last audio to consider speech complete
+        if self.speech_state['last_audio_timestamp']:
+            time_since_audio = current_time - self.speech_state['last_audio_timestamp']
+            SPEECH_COMPLETION_THRESHOLD = 1.5  # 1500ms without audio = speech likely complete
+            
+            if time_since_audio > SPEECH_COMPLETION_THRESHOLD:
+                speech_duration = current_time - (self.speech_state['speech_start_time'] or current_time)
+                print(f"\\033[96m[{time.strftime('%H:%M:%S.%f')[:-3]}] 🕐 SPEECH_GAP_DETECTED: {time_since_audio:.2f}s since last audio (speech duration: {speech_duration:.2f}s)\\033[0m")
+                await self._deliver_queued_tool_responses("speech_gap_detected")
     
     async def _handle_error(self, error):
         """Handle error responses from Gemini."""
