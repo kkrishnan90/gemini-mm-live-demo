@@ -44,6 +44,7 @@ class GeminiResponseHandler:
         self.tool_processor = ToolCallProcessor(session, available_functions, tool_results_queue)
         self.is_tool_response = False
         self.audio_processing_lock = asyncio.Lock()
+        self.processed_tool_calls = set()
 
     def set_is_tool_response(self, value: bool):
         """Sets the flag to indicate the next response is from a tool call."""
@@ -221,31 +222,42 @@ class GeminiResponseHandler:
         while not self.tool_results_queue.empty():
             function_response = await self.tool_results_queue.get()
             
-            # Check if it's a FunctionResponse object or needs to be sent differently
-            if hasattr(function_response, 'name') and hasattr(function_response, 'response'):
-                # It's a FunctionResponse object - send as tool response
-                self.is_tool_response = True
-                await self.session.send_tool_response(function_responses=[function_response])
+            try:
+                # Check if it's a FunctionResponse object or needs to be sent differently
+                if hasattr(function_response, 'name') and hasattr(function_response, 'response'):
+                    # Create a unique ID for the tool response to prevent reprocessing
+                    tool_call_id = f"{function_response.name}-{function_response.response.get('uuid', '')}"
+
+                    if tool_call_id in self.processed_tool_calls:
+                        print(f"\033[93m[WARN] Skipping already processed tool call: {tool_call_id}\033[0m")
+                        self.tool_results_queue.task_done()
+                        continue
+
+                    # It's a FunctionResponse object - send as tool response
+                    self.is_tool_response = True
+                    await self.session.send_tool_response(function_responses=[function_response])
+                    
+                    # Log the coordinated sending
+                    delivery_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+                    print(f"\033[96m[{delivery_timestamp}] 🎯 COORDINATED_DELIVERY: Sent tool response for {function_response.name} (trigger: {trigger_reason})\033[0m")
+                    self.processed_tool_calls.add(tool_call_id)
+                else:
+                    # It's some other format - use original send_client_content method
+                    await self.session.send_client_content(turns=[function_response])
+                    
+                    # Log the coordinated sending
+                    delivery_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
+                    print(f"\033[96m[{delivery_timestamp}] 🎯 COORDINATED_DELIVERY: Sent client content (trigger: {trigger_reason})\033[0m")
                 
-                # Log the coordinated sending
-                delivery_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-                print(f"\\033[96m[{delivery_timestamp}] 🎯 COORDINATED_DELIVERY: Sent tool response for {function_response.name} (trigger: {trigger_reason})\\033[0m")
-            else:
-                # It's some other format - use original send_client_content method
-                await self.session.send_client_content(turns=[function_response])
-                
-                # Log the coordinated sending
-                delivery_timestamp = time.strftime("%H:%M:%S.%f")[:-3]
-                print(f"\\033[96m[{delivery_timestamp}] 🎯 COORDINATED_DELIVERY: Sent client content (trigger: {trigger_reason})\\033[0m")
-            
-            self.tool_results_queue.task_done()
-            response_count += 1
+                response_count += 1
+            finally:
+                self.tool_results_queue.task_done()
         
         # Update speech state
         if response_count > 0:
             self.speech_state['is_gemini_speaking'] = False
             self.speech_state['pending_tool_responses'] = max(0, self.speech_state['pending_tool_responses'] - response_count)
-            print(f"\\033[96m[{time.strftime('%H:%M:%S.%f')[:-3]}] ✅ DELIVERY_COMPLETE: Delivered {response_count} tool responses, speech state reset\\033[0m")
+            print(f"\033[96m[{time.strftime('%H:%M:%S.%f')[:-3]}] ✅ DELIVERY_COMPLETE: Delivered {response_count} tool responses, speech state reset\033[0m")
     
     async def _check_speech_completion_and_deliver_responses(self):
         """Check if speech has completed based on audio timing and deliver queued responses."""
