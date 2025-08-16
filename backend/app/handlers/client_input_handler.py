@@ -123,13 +123,21 @@ class ClientInputHandler:
             print("⚠️ AUDIO WARNING: Received empty audio chunk")
             return
         
-        # Send audio to Gemini with minimal logging
-        await self.session.send_realtime_input(
-            audio=types.Blob(
-                mime_type=f"audio/pcm;rate={settings.INPUT_SAMPLE_RATE}",
-                data=audio_chunk
+        # Send audio to Gemini with the correct parameter based on the configuration
+        if settings.GOOGLE_GENAI_USE_VERTEXAI:
+            await self.session.send_realtime_input(
+                media=types.Blob(
+                    mime_type=f"audio/pcm;rate={settings.INPUT_SAMPLE_RATE}",
+                    data=audio_chunk
+                )
             )
-        )
+        else:
+            await self.session.send_realtime_input(
+                audio=types.Blob(
+                    mime_type=f"audio/pcm;rate={settings.INPUT_SAMPLE_RATE}",
+                    data=audio_chunk
+                )
+            )
     
     def _get_connection_time(self) -> float:
         """Get time since connection started."""

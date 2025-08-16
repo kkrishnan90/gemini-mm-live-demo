@@ -1,7 +1,7 @@
 """
 Core application factory and setup.
 """
-
+from dotenv import load_dotenv
 from quart import Quart
 from quart_cors import cors
 
@@ -17,6 +17,12 @@ def create_app() -> Quart:
     Returns:
         Quart: Configured application instance
     """
+    load_dotenv()
+    
+    # Print configuration info
+    print(f"🤖 Using Gemini model: {settings.GEMINI_MODEL_NAME}")
+    print(f"🎙️ Voice Activity Detection: {'DISABLED' if settings.DISABLE_VAD else 'ENABLED'}")
+
     app = Quart(__name__)
     
     # Configure CORS

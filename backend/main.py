@@ -39,10 +39,6 @@ atexit.register(cleanup_on_exit)
 signal.signal(signal.SIGINT, signal_handler)  # Ctrl+C
 signal.signal(signal.SIGTERM, signal_handler)  # Termination signal
 
-# Print configuration info
-print(f"🤖 Using Gemini model: {settings.GEMINI_MODEL_NAME}")
-print(f"🎙️ Voice Activity Detection: {'DISABLED' if settings.DISABLE_VAD else 'ENABLED'}")
-
 # Create the application
 app = create_app()
 

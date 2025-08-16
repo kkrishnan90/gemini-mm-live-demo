@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import DenoiserWorklet from '../worklets/denoiser.worklet.js';
 
 import AudioBufferManager from "../utils/audioBufferManager.js";
 import { createAudioProcessor } from "../utils/scriptProcessorFallback.js";
@@ -48,7 +47,6 @@ export const useAudio = (
   const networkResilienceManagerRef = useRef(null);
   const audioContextRecoveryAttempts = useRef(0);
   const mediaStreamRef = useRef(null);
-  const denoiserNodeRef = useRef(null);
   const isRecordingRef = useRef(isRecording);
   const isMutedRef = useRef(isMuted);
   const glassToGlassLatencyRef = useRef([]);
@@ -360,10 +358,6 @@ export const useAudio = (
           `AudioContext state is ${localAudioContextRef.current.state}, cannot initialize processor`
         );
         return false;
-      }
-
-      if (process.env.REACT_APP_USE_DENOISER === 'true') {
-          addLogEntry("info", "Denoiser is enabled via environment variable.");
       }
 
       // Initialize Audio Buffer Manager
@@ -796,57 +790,6 @@ export const useAudio = (
           
           mediaStreamRef.current = stream;
           let streamToProcess = stream;
-
-          
-
-          if (process.env.REACT_APP_USE_DENOISER === 'true' && localAudioContextRef.current) {
-              addLogEntry("info", "Denoising enabled. Creating denoised audio stream.");
-              
-              const createDenoiserNode = () => new Promise(async (resolve, reject) => {
-                try {
-                  addLogEntry("info", "Starting denoiser worklet module load...");
-                  
-                  // worker-loader provides a constructor for the worklet.
-                  const worklet = new DenoiserWorklet();
-                  
-                  addLogEntry("info", `Loading worklet from bundled URL: ${worklet.url}`);
-                  await localAudioContextRef.current.audioWorklet.addModule(worklet.url);
-                  
-                  addLogEntry("info", "Denoiser worklet module loaded successfully");
-                  const denoiserNode = new AudioWorkletNode(localAudioContextRef.current, 'denoiser-worklet-processor');
-                  
-                  // Listen for worklet messages
-                  denoiserNode.port.onmessage = (event) => {
-                    if (event.data.ready) {
-                      addLogEntry("info", "Denoiser worklet processor ready");
-                    } else if (event.data.error) {
-                      addLogEntry("error", `Denoiser worklet error: ${event.data.error}`);
-                    }
-                  };
-                  
-                  resolve(denoiserNode);
-                } catch (error) {
-                  reject(error);
-                }
-              });
-
-              try {
-                const denoiserNode = await createDenoiserNode();
-                const source = localAudioContextRef.current.createMediaStreamSource(stream);
-                const destination = localAudioContextRef.current.createMediaStreamDestination();
-
-                source.connect(denoiserNode);
-                denoiserNode.connect(destination);
-
-                streamToProcess = destination.stream;
-                denoiserNodeRef.current = denoiserNode; // Save for potential cleanup
-                addLogEntry("info", "Audio graph re-routed through denoiser.");
-              } catch (error) {
-                addLogEntry("error", `Failed to create denoiser node: ${error.message}`);
-                // If denoiser fails, fall back to the original stream
-                streamToProcess = stream;
-              }
-          }
           
           addLogEntry("debug", "Starting audio processor with stream...");
           await audioProcessorRef.current.start(streamToProcess);
@@ -929,10 +872,6 @@ export const useAudio = (
   }, [addLogEntry]);
 
   const handleStopListeningAndCleanupMic = useCallback(() => {
-    if (denoiserNodeRef.current) {
-      denoiserNodeRef.current.disconnect();
-      denoiserNodeRef.current = null;
-    }
     if (audioProcessorRef.current) {
       audioProcessorRef.current.stop();
       audioProcessorRef.current.destroy();
