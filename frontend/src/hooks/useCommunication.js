@@ -37,11 +37,16 @@ export const useCommunication = (
   const [webSocketStatus, setWebSocketStatus] = useState("N/A");
   const [transcriptionMessages, setTranscriptionMessages] = useState([]);
   const [isWebSocketReady, setIsWebSocketReady] = useState(false);
+  const [isServerReady, setIsServerReady] = useState(false); // New state for server readiness
   const socketRef = useRef(null);
   const playbackAudioContextRef = useRef(null);
   const connectionSignalTracker = useRef(new Set());
   const pendingMetadataRef = useRef(new Map());
   const addLogEntryRef = useRef(addLogEntry);
+
+  // Refs for pre-flight buffering
+  const isServerReadyRef = useRef(false);
+  const preflightBufferRef = useRef([]);
   
   // Update ref when addLogEntry changes
   useEffect(() => {
@@ -90,7 +95,7 @@ export const useCommunication = (
     }
   }, []);
 
-  // Function to check if we should start playback even with fewer chunks
+  // Function to check if we should start playback early
   const shouldStartPlaybackEarly = useCallback(() => {
     const tracking = chunkTrackingRef.current;
     const bufferLength = jitterBufferRef.current.length;
@@ -451,6 +456,12 @@ export const useCommunication = (
         `Attempting to connect to WebSocket with language: ${lang}...`
       );
       setWebSocketStatus("Connecting...");
+
+      // Reset server ready state for new connection
+      setIsServerReady(false);
+      isServerReadyRef.current = false;
+      preflightBufferRef.current = [];
+
       socketRef.current = new WebSocket(
         `ws://${BACKEND_HOST}/listen?lang=${lang}`
       );
@@ -498,22 +509,11 @@ export const useCommunication = (
         debugLog(`🔍 Final decision: sessionIsActive=${sessionIsActive}`);
         
         if (sessionIsActive) {
-          debugLog("✅ Session IS active - starting microphone!");
+          debugLog("🎤 Session is active, but microphone activation is now deferred until server is ready.");
           addLogEntryRef.current(
             "session_flow",
-            "Session is active. Proceeding to start microphone input via handleStartListening."
+            "WebSocket is open. Microphone will start after 'server_ready' signal."
           );
-          addLogEntryRef.current("debug", `About to call handleStartListening, isSessionActive=${isSessionActive}`);
-          
-          debugLog("🎤 About to call handleStartListening...");
-          try {
-            handleStartListening(false);
-            debugLog("🎤 handleStartListening call completed successfully");
-            addLogEntryRef.current("debug", "handleStartListening call completed");
-          } catch (error) {
-            debugError("🎤 ERROR calling handleStartListening:", error);
-            addLogEntryRef.current("error", `handleStartListening call failed: ${error.message}`);
-          }
         } else {
           debugLog("❌ Session NOT active - microphone not started!");
           addLogEntryRef.current(
@@ -527,6 +527,10 @@ export const useCommunication = (
         setIsWebSocketReady(false);
         setIsWebSocketConnected(false);
         setWebSocketStatus("Closed");
+        // Reset server ready state on close
+        setIsServerReady(false);
+        isServerReadyRef.current = false;
+        preflightBufferRef.current = [];
       };
       socketRef.current.onerror = () => {
         addLogEntryRef.current("error", "WebSocket onerror event fired");
@@ -538,7 +542,21 @@ export const useCommunication = (
         if (typeof event.data === "string") {
           try {
             const receivedData = JSON.parse(event.data);
-            if (receivedData.type && receivedData.type.endsWith("_update")) {
+            if (receivedData.type === 'control' && receivedData.signal === 'server_ready') {
+                addLogEntryRef.current('ws', '🚦 Server is ready to receive audio.');
+                setIsServerReady(true);
+                isServerReadyRef.current = true;
+    
+                // Flush pre-flight buffer
+                if (preflightBufferRef.current.length > 0) {
+                    addLogEntryRef.current('audio_flow', `Flushing ${preflightBufferRef.current.length} audio chunks from pre-flight buffer.`);
+                    const bufferedChunks = [...preflightBufferRef.current];
+                    preflightBufferRef.current = [];
+                    bufferedChunks.forEach(chunk => {
+                        sendAudioChunkWithBackpressure(chunk);
+                    });
+                }
+            } else if (receivedData.type && receivedData.type.endsWith("_update")) {
               addLogEntryRef.current(
                 receivedData.type,
                 `${receivedData.sender}: ${receivedData.text} (Final: ${receivedData.is_final})`
@@ -889,6 +907,7 @@ export const useCommunication = (
       isRecording,
       language,
       checkForTruncationIssues,
+      sendAudioChunkWithBackpressure, // Added dependency
     ]
   );
 
@@ -900,6 +919,7 @@ export const useCommunication = (
     connectWebSocket,
     setTranscriptionMessages,
     isWebSocketReady,
+    isServerReady, // Expose new state
     resetAudioTrackingState,
   };
 };

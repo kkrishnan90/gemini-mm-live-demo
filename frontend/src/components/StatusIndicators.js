@@ -3,6 +3,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import {
   faWifi,
   faPowerOff,
+  faServer, // Import server icon
 } from '@fortawesome/free-solid-svg-icons';
 import { LANGUAGES } from '../utils/constants';
 
@@ -13,7 +14,8 @@ export const StatusIndicators = ({
   webSocketStatus, 
   audioHealth, 
   networkQuality, 
-  bufferMetrics 
+  bufferMetrics,
+  isServerReady, // New prop
 }) => {
   return (
     <div className="control-tray secondary-controls">
@@ -37,6 +39,16 @@ export const StatusIndicators = ({
         <div className="icon-status-content">
           <FontAwesomeIcon icon={faWifi} />
           <span className="icon-status-text">WS: {webSocketStatus}</span>
+        </div>
+      </div>
+      <div
+        className="status-indicator icon-status-indicator server-ready-status"
+        title={`Server Ready: ${isServerReady ? 'Yes' : 'No'}`}>
+        <div className="icon-status-content">
+          <FontAwesomeIcon icon={faServer} />
+          <span className="icon-status-text">
+            Server: {isServerReady ? "Ready" : "Wait"}
+          </span>
         </div>
       </div>
       <div
@@ -89,3 +101,4 @@ Output Buffer: ${(bufferMetrics.outputFillLevel * 100).toFixed(1)}%`}>
     </div>
   );
 };
+

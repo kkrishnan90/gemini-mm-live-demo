@@ -5,6 +5,7 @@ WebSocket connection handler for Gemini Live API integration.
 import asyncio
 import uuid
 import traceback
+import json
 from typing import Dict, Any, Optional
 from websockets.exceptions import ConnectionClosedOK
 
@@ -54,6 +55,10 @@ class WebSocketHandler:
         try:
             async with self._create_gemini_session() as session:
                 print("✅ Successfully connected to Gemini Live API")
+                
+                # Inform the client that the backend is ready
+                await websocket.send(json.dumps({"type": "control", "signal": "server_ready"}))
+                print("🚦 Sent 'server_ready' signal to client")
                 
                 # Create handlers, passing the queue to the response handler
                 client_handler = ClientInputHandler(session, session_state)
