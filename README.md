@@ -25,25 +25,85 @@ The application is composed of a Python/Quart backend and a React.js frontend.
 
 ### Backend (`backend/`)
 
-A Python server built with the Quart web framework. It handles the WebSocket connection, audio streaming to and from the Gemini Live API, and executes tool calls for travel-related queries.
+The backend is a Python server built with the Quart web framework. It handles WebSocket connections, streams audio to and from the Gemini Live API, and executes tool calls for travel-related queries.
 
-- `main.py`: Application entry point.
-- `app/core/app.py`: Main Quart application factory.
-- `app/core/config.py`: Environment configuration.
-- `app/handlers/`: WebSocket and audio processing handlers.
-- `app/services/gemini_client.py`: Gemini Live API client.
-- `app/tools/`: Travel booking agents (declarations, implementations, registry).
-- `app/data/travel_mock_data.py`: Mock travel API responses.
+```
+backend/
+│
+├── app/
+│   ├── core/
+│   │   ├── app.py               # Main Quart application factory and entry point
+│   │   └── config.py            # Manages environment variables and settings
+│   │
+│   ├── data/
+│   │   └── travel_mock_data.py  # Provides mock data for travel services
+│   │
+│   ├── handlers/
+│   │   ├── websocket_handler.py # Orchestrates the WebSocket session lifecycle
+│   │   ├── client_input_handler.py # Handles incoming messages from the client
+│   │   ├── gemini_response_handler.py # Processes responses from the Gemini API
+│   │   ├── audio_processor.py   # Manages and processes audio chunks
+│   │   ├── tool_call_processor.py # Executes tool calls asynchronously
+│   │   └── transcription_processor.py # Processes and forwards transcriptions
+│   │
+│   ├── routes/
+│   │   ├── api.py               # Defines REST API endpoints (e.g., for logs)
+│   │   └── websocket.py         # Defines the main WebSocket route
+│   │
+│   ├── services/
+│   │   └── gemini_client.py     # Manages the connection to the Gemini Live API
+│   │
+│   ├── tools/
+│   │   ├── declarations.py      # Defines the function schemas for the Gemini API
+│   │   ├── implementations.py   # Contains the business logic for each tool
+│   │   └── registry.py          # Creates and manages the tool registry
+│   │
+│   └── utils/
+│       ├── audio.py             # Audio utility classes (e.g., AudioBuffer)
+│       └── logging.py           # Utilities for capturing and serving logs
+│
+├── main.py                      # Application entry point for the server
+├── requirements.txt             # Python package dependencies
+└── Dockerfile                   # Container definition for deployment
+```
 
 ### Frontend (`frontend/`)
 
-A React.js single-page application that provides the user interface. It captures audio from the microphone, sends it to the backend via WebSockets, and displays the real-time transcription and responses from the Gemini assistant.
+The frontend is a React.js single-page application that provides the user interface. It captures audio from the microphone, sends it to the backend via WebSockets, and displays the real-time transcription and responses from the Gemini assistant.
 
-- `src/App.js`: Main React component.
-- `src/hooks/`: Custom React Hooks for session, audio, and communication management.
-- `src/components/`: Modular UI components.
-- `src/utils/`: Utility functions for audio processing, network resilience, and WebSocket management.
-- `public/audio-processor.js`: Audio worklet implementation.
+```
+frontend/
+│
+├── public/
+│   ├── index.html               # The main HTML file for the React app
+│   └── audio-processor.js       # The AudioWorklet for processing microphone input
+│
+├── src/
+│   ├── components/              # Reusable React components for the UI
+│   │   ├── MainPanel.js         # Displays the conversation transcript
+│   │   ├── ConsolePanel.js      # Shows real-time application and tool logs
+│   │   ├── ControlBar.js        # Container for action buttons and status indicators
+│   │   └── StatusIndicators.js  # Displays connection, audio, and network status
+│   │
+│   ├── hooks/                   # Custom React Hooks for managing complex logic
+│   │   ├── useSession.js        # Master hook that coordinates all other hooks
+│   │   ├── useAudio.js          # Manages the entire audio pipeline (capture, VAD, etc.)
+│   │   ├── useCommunication.js  # Manages the WebSocket connection and data flow
+│   │   ├── useToolLogs.js       # Fetches and displays tool logs from the backend
+│   │   └── useAppLogger.js      # Manages client-side application logs
+│   │
+│   ├── utils/                   # Utility classes and functions
+│   │   ├── audioBufferManager.js # Manages adaptive audio buffering
+│   │   ├── networkResilienceManager.js # Handles network backpressure and reliability
+│   │   ├── webSocketUtils.js    # Provides helper functions for WebSocket communication
+│   │   └── scriptProcessorFallback.js # Fallback for browsers without AudioWorklet
+│   │
+│   ├── App.js                   # The main application component
+│   └── index.js                 # The entry point for the React application
+│
+├── package.json                 # Project dependencies and scripts
+└── .env.example                 # Example environment variables for the frontend
+```
 
 ## Installation of backend
 
@@ -108,7 +168,7 @@ The backend exposes a set of tools for the Gemini model to use for travel-relate
 - `Flight_Booking_Details_Agent`: Retrieves the full itinerary for a given booking.
 - `Webcheckin_And_Boarding_Pass_Agent`: Handles web check-in and sends boarding passes.
 
-## Critical configurations (ignore GEMINI_API_KEY - focus on Vertex AI)
+## Critical configurations
 
 The following environment variables are critical for running the backend with Vertex AI:
 
